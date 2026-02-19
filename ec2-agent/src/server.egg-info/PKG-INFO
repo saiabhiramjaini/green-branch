@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: server
+Version: 0.1.0
+Summary: Add your description here
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: docker>=7.1.0
+Requires-Dist: fastapi>=0.129.0
+Requires-Dist: gitpython>=3.1.46
+Requires-Dist: httpx>=0.28.1
+Requires-Dist: pydantic-settings>=2.13.0
+Requires-Dist: uvicorn[standard]>=0.41.0

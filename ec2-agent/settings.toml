@@ -1,0 +1,52 @@
+[default]
+# ---- App metadata ----
+app_name = "EC2 Agent"
+version = "1.0.0"
+
+# ---- Runtime behavior ----
+debug = false
+api_prefix = "/api/v1"
+
+# ---- Server defaults (can be overridden per environment) ----
+host = "0.0.0.0"
+port = 8001
+
+# ---- Logging ----
+log_level = "INFO"
+
+# ---- Security / CORS (non-secret) ----
+allowed_hosts = ["localhost", "127.0.0.1"]
+cors_allow_origins = ["http://localhost:3000"]
+cors_allow_credentials = true
+cors_allow_methods = ["*"]
+cors_allow_headers = ["*"]
+
+# ---- Example: feature flags ----
+feature_docs_enabled = true
+
+[development]
+dynaconf_merge = true
+debug = true
+log_level = "DEBUG"
+feature_docs_enabled = true
+cors_allow_origins = ["*"]
+
+
+[staging]
+dynaconf_merge = true
+debug = false
+log_level = "INFO"
+feature_docs_enabled = true
+
+allowed_hosts = ["staging.mycompany.com"]
+cors_allow_origins = ["https://staging.mycompany.com"]
+
+
+[production]
+dynaconf_merge = true
+debug = false
+log_level = "WARNING"
+feature_docs_enabled = false
+
+allowed_hosts = ["api.mycompany.com"]
+cors_allow_origins = ["https://mycompany.com"]

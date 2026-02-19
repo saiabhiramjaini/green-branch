@@ -1,0 +1,14 @@
+[project]
+name = "server"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "docker>=7.1.0",
+    "fastapi>=0.129.0",
+    "gitpython>=3.1.46",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.13.0",
+    "uvicorn[standard]>=0.41.0",
+]
