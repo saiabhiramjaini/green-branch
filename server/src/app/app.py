@@ -1,5 +1,7 @@
 """Application factory — builds and returns the FastAPI app."""
 
+import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,6 +9,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.app.config import api_settings
 from src.endpoints import health_router, agent_router
+
+
+def _configure_logging() -> None:
+    """Set up a readable log format for the RIFT server."""
+    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    date_fmt = "%H:%M:%S"
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(fmt, datefmt=date_fmt))
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if api_settings.debug else logging.INFO)
+    # Remove any existing handlers (prevents duplicate output with uvicorn)
+    root.handlers.clear()
+    root.addHandler(handler)
+
+    # Keep uvicorn's own loggers at INFO so we still see request lines
+    for uv_logger in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        logging.getLogger(uv_logger).setLevel(logging.INFO)
 
 
 @asynccontextmanager
@@ -36,6 +56,7 @@ async def lifespan(app: FastAPI):
 
 def init_app() -> FastAPI:
     """Application factory."""
+    _configure_logging()
     app = FastAPI(
         title=api_settings.app_name,
         version=api_settings.version,

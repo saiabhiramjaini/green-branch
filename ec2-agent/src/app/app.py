@@ -9,6 +9,7 @@ from src.endpoints import (
     session_router,
     execution_router,
     fix_router,
+    files_router,
 )
 
 
@@ -65,5 +66,6 @@ def init_app() -> FastAPI:
     app.include_router(session_router, prefix=api_prefix)
     app.include_router(execution_router, prefix=api_prefix)
     app.include_router(fix_router, prefix=api_prefix)
+    app.include_router(files_router, prefix=api_prefix)
 
     return app

@@ -53,12 +53,14 @@ class TestRunner:
         """
         start_time = time.time()
 
-        # 1. Clone repo to EC2 filesystem
-        repo_path = self.git_service.clone_repo(
-            repo_url=repo_url,
-            session_id=session_id,
-            branch=branch,
-        )
+        # 1. Get repo path (clone only if not already present)
+        repo_path = self.git_service.get_repo_path(session_id)
+        if not os.path.exists(repo_path):
+            repo_path = self.git_service.clone_repo(
+                repo_url=repo_url,
+                session_id=session_id,
+                branch=branch,
+            )
 
         # Container sees repos at /repos/ (volume mount)
         container_repo_path = os.path.join("/repos", session_id)

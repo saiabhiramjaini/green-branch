@@ -86,3 +86,6 @@ class AgentRunResponse(BaseModel):
     commit_hash: str | None = None
     branch_name: str | None = None
     errors_remaining: list[dict] = []
+
+    # Full debug trace: every API call with request + response payloads
+    debug_trace: list[dict] = Field(default_factory=list, description="Ordered list of API call events")

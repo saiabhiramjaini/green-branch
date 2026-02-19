@@ -48,4 +48,5 @@ async def agent_run(request: AgentRunRequest) -> AgentRunResponse:
         commit_hash=result.get("commit_hash"),
         branch_name=result.get("branch_name"),
         errors_remaining=result.get("errors_remaining", []),
+        debug_trace=result.get("debug_trace", []),
     )

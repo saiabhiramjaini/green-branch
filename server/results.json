@@ -1,0 +1,179 @@
+{
+  "session_id": "7d2ca560-251d-44d2-88b3-8f6432f99919",
+  "status": "passed",
+  "passed": true,
+  "iterations": 2,
+  "message": "All tests passing.",
+  "run_summary": {
+    "repo_url": "https://github.com/vajradhar13/simple-express-app.git",
+    "team_name": "D6VS",
+    "team_leader_name": "abhiram",
+    "branch_name": "D6VS_ABHIRAM_AI_Fix",
+    "total_failures": 2,
+    "total_fixes": 1,
+    "final_status": "PASSED",
+    "time_taken_seconds": 35.7
+  },
+  "score_breakdown": {
+    "base_score": 100,
+    "speed_bonus": 10,
+    "efficiency_penalty": 0,
+    "total_commits": 0,
+    "final_score": 110
+  },
+  "fixes_applied": [
+    {
+      "file": "src/index.ts",
+      "bug_type": "LOGIC",
+      "line_number": null,
+      "commit_message": "[AI-AGENT] Fix LOGIC in src/index.ts",
+      "status": "fixed"
+    }
+  ],
+  "ci_timeline": [
+    {
+      "iteration": 1,
+      "status": "failed",
+      "errors_count": 2,
+      "fixes_applied": 0,
+      "timestamp": "2026-02-19T17:21:23.300952+00:00"
+    },
+    {
+      "iteration": 2,
+      "status": "passed",
+      "errors_count": 0,
+      "fixes_applied": 1,
+      "timestamp": "2026-02-19T17:21:38.786524+00:00"
+    }
+  ],
+  "commit_hash": null,
+  "branch_name": null,
+  "errors_remaining": [],
+  "debug_trace": [
+    {
+      "stage": "create_session",
+      "timestamp": "2026-02-19T17:21:04.609331+00:00",
+      "duration_ms": 1313,
+      "request": {
+        "repo_url": "https://github.com/vajradhar13/simple-express-app.git",
+        "language": "nodejs"
+      },
+      "response": {
+        "session_id": "7d2ca560-251d-44d2-88b3-8f6432f99919",
+        "user_id": "anonymous",
+        "status": "cloned",
+        "repo_url": "https://github.com/vajradhar13/simple-express-app.git",
+        "language": "nodejs",
+        "repo_path": "./repos/7d2ca560-251d-44d2-88b3-8f6432f99919",
+        "created_at": "2026-02-19T17:21:04.508275+00:00"
+      },
+      "summary": "Session 7d2ca560-251d-44d2-88b3-8f6432f99919 created \u2014 repo cloned"
+    },
+    {
+      "stage": "execute_tests",
+      "iteration": 1,
+      "timestamp": "2026-02-19T17:21:23.300952+00:00",
+      "duration_ms": 18666,
+      "request": {
+        "session_id": "7d2ca560-251d-44d2-88b3-8f6432f99919",
+        "branch": "main",
+        "install_command": "npm i",
+        "test_command": "npm run test"
+      },
+      "response": {
+        "status": "failed",
+        "passed": 1,
+        "failed": 2,
+        "errors": [
+          {
+            "file": "src/tests/sum.test.ts",
+            "line": null,
+            "error_type": "LOGIC",
+            "message": "POST /sum \u203a should return the sum of two numbers: expect(received).toBe(expected) // Object.is equality",
+            "full_trace": null
+          },
+          {
+            "file": "src/tests/sum.test.ts",
+            "line": null,
+            "error_type": "LOGIC",
+            "message": "POST /sum \u203a should return the sum of two negative numbers: expect(received).toBe(expected) // Object.is equality",
+            "full_trace": null
+          }
+        ],
+        "raw_output": "\n> 2-simple-express-app@1.0.0 test\n> jest --testTimeout=5000\n\nFAIL src/tests/sum.test.ts\n  POST /sum\n    \u2715 should return the sum of two numbers (67 ms)\n    \u2715 should return the sum of two negative numbers (5 ms)\n    \u2713 should return the sum of two zero number (2 ms)\n\n  \u25cf POST /sum \u203a should return the sum of two numbers\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 3\n    Received: -1\n\n      10 |         });\n      11 |         expect(res.statusCode).toBe(200);\n    > 12 |         expect(res.body.answer).toBe(3);\n         |                                 ^\n      13 |       });\n      14 |\n      15 |       it(\"should return the sum of two negative numbers\", async () => {\n\n      at src/tests/sum.test.ts:12:33\n      at fulfilled (src/tests/sum.test.ts:5:58)\n\n  \u25cf POST /sum \u203a should return the sum of two negative numbers\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: -3\n    Received: 1\n\n      19 |         });\n      20 |         expect(res.statusCode).toBe(200);\n    > 21 |         expect(res.body.answer).toBe(-3);\n         |                                 ^\n      22 |       });\n      23 |\n      24 |       it(\"should return the sum of two zero number\", async () => {\n\n      at src/tests/sum.test.ts:21:33\n      at fulfilled (src/tests/sum.test.ts:5:58)\n\nTest Suites: 1 failed, 1 total\nTests:       2 failed, 1 passed, 3 total\nSnapshots:   0 total\nTime:        3.815 s\nRan all test suites.\n",
+        "duration": 18.35
+      },
+      "summary": "FAILED \u2014 2 error(s)"
+    },
+    {
+      "stage": "fix_code",
+      "iteration": 1,
+      "timestamp": "2026-02-19T17:21:31.780896+00:00",
+      "duration_ms": 8324,
+      "llm": {
+        "model": "llama-3.3-70b-versatile",
+        "prompt_chars": 3583,
+        "output_chars": 228,
+        "duration_ms": 720,
+        "prompt_preview": "CI pipeline failed. Fix the issue with a MINIMAL change.\n\n=== ERROR INFO ===\nFile: src/tests/sum.test.ts\nLanguage: nodejs\nError Type: LOGIC\nLine: unknown\nMessage: POST /sum \u203a should return the sum of two numbers: expect(received).toBe(expected) // Object.is equality\nFull Trace: None\n\nNOTE: The file reported in the error is a TEST file. The test assertions are CORRECT. The bug is in the IMPLEMENTAT",
+        "output_preview": "import express from \"express\";\n\nexport const app = express();\napp.use(express.json());\n\napp.post(\"/sum\", (req, res) => {\n  const a = req.body.a;\n  const b = req.body.b;\n  const answer = a + b;\n\n  res.json({\n    answer,\n  });\n});"
+      },
+      "request": {
+        "session_id": "7d2ca560-251d-44d2-88b3-8f6432f99919",
+        "file_path": "src/index.ts",
+        "fix_content": "<228 chars>",
+        "install_command": "npm i",
+        "test_command": "npm run test"
+      },
+      "response": {
+        "success": true,
+        "file_updated": true,
+        "message": "Fix applied. Tests passed.",
+        "test_result": {
+          "session_id": "7d2ca560-251d-44d2-88b3-8f6432f99919",
+          "status": "success",
+          "language": "nodejs",
+          "passed": 1,
+          "failed": 0,
+          "errors": [],
+          "raw_output": "\n> 2-simple-express-app@1.0.0 test\n> jest --testTimeout=5000\n\nPASS src/tests/sum.test.ts\n  POST /sum\n    \u2713 should return the sum of two numbers (57 ms)\n    \u2713 should return the sum of two negative numbers (4 ms)\n    \u2713 should return the sum of two zero number (3 ms)\n\nTest Suites: 1 passed, 1 total\nTests:       3 passed, 3 total\nSnapshots:   0 total\nTime:        3.849 s, estimated 4 s\nRan all test suites.\n",
+          "duration": 7.41
+        }
+      },
+      "summary": "OK \u2014 fixed src/index.ts (LOGIC)"
+    },
+    {
+      "stage": "execute_tests",
+      "iteration": 2,
+      "timestamp": "2026-02-19T17:21:38.786524+00:00",
+      "duration_ms": 6994,
+      "request": {
+        "session_id": "7d2ca560-251d-44d2-88b3-8f6432f99919",
+        "branch": "main",
+        "install_command": "npm i",
+        "test_command": "npm run test"
+      },
+      "response": {
+        "status": "success",
+        "passed": 1,
+        "failed": 0,
+        "errors": [],
+        "raw_output": "\n> 2-simple-express-app@1.0.0 test\n> jest --testTimeout=5000\n\nPASS src/tests/sum.test.ts\n  POST /sum\n    \u2713 should return the sum of two numbers (44 ms)\n    \u2713 should return the sum of two negative numbers (3 ms)\n    \u2713 should return the sum of two zero number (3 ms)\n\nTest Suites: 1 passed, 1 total\nTests:       3 passed, 3 total\nSnapshots:   0 total\nTime:        3.727 s, estimated 4 s\nRan all test suites.\n",
+        "duration": 6.68
+      },
+      "summary": "PASSED \u2014 0 error(s)"
+    },
+    {
+      "stage": "commit_fix",
+      "timestamp": "2026-02-19T17:21:38.996379+00:00",
+      "duration_ms": 0,
+      "request": {
+        "file_path": "src/index.ts"
+      },
+      "response": {
+        "error": "EC2 agent [commit_fix] 500: TypeError: GitService.commit_and_push() got an unexpected keyword argument 'message'"
+      },
+      "summary": "FAILED \u2014 src/index.ts: EC2 agent [commit_fix] 500: TypeError: GitService.commit_and_push() got an unexpected keyword argument 'message'"
+    }
+  ]
+}

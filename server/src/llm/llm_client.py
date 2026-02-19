@@ -36,6 +36,11 @@ def _clean_output(text: str) -> str:
     return text.strip()
 
 
+def clean_code_fences(text: str) -> str:
+    """Public alias for stripping markdown fences from code."""
+    return _clean_output(text)
+
+
 def ask_llm(prompt: str) -> str:
     """
     Send a code-repair prompt to Groq LLM and return the fixed code.
@@ -44,7 +49,15 @@ def ask_llm(prompt: str) -> str:
     """
     client = _get_client()
 
+    logger.info("\n" + "#"*60)
+    logger.info("[LLM-REQ] Groq chat.completions.create")
+    logger.info(f"[LLM-REQ] model={api_settings.llm_model}  max_tokens={api_settings.llm_max_tokens}  temp={api_settings.llm_temperature}")
+    logger.info(f"[LLM-REQ] PROMPT ({len(prompt)} chars):\n{prompt}")
+    logger.info("#"*60)
+
     try:
+        import time as _time
+        t0 = _time.monotonic()
         response = client.chat.completions.create(
             model=api_settings.llm_model,
             messages=[
@@ -62,13 +75,19 @@ def ask_llm(prompt: str) -> str:
             temperature=api_settings.llm_temperature,
             max_tokens=api_settings.llm_max_tokens,
         )
+        elapsed = (_time.monotonic() - t0) * 1000
 
         content = response.choices[0].message.content
-        logger.info(f"LLM response received ({len(content)} chars)")
+        usage = response.usage
+        logger.info("\n" + "-"*60)
+        logger.info(f"[LLM-RES] Groq response ({elapsed:.0f}ms)")
+        logger.info(f"[LLM-RES] usage: prompt_tokens={usage.prompt_tokens}  completion_tokens={usage.completion_tokens}  total={usage.total_tokens}")
+        logger.info(f"[LLM-RES] OUTPUT ({len(content)} chars):\n{content[:1000]}{'...<truncated>' if len(content) > 1000 else ''}")
+        logger.info("-"*60)
         return _clean_output(content)
 
     except LLMError:
         raise
     except Exception as e:
-        logger.error(f"LLM call failed: {e}")
+        logger.error(f"[LLM-ERR] LLM call failed: {e}")
         raise LLMError(f"LLM call failed: {e}")

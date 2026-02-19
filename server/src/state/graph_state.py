@@ -34,3 +34,9 @@ class GraphState(TypedDict):
     total_failures_detected: int             # Total unique failures found
     fixed_files: list[str]
     commit_hash: str | None
+
+    # ── Last test run output (for LLM context) ──
+    raw_output: str                          # Full raw output from last test run
+
+    # ── Debug trace (full API call log) ──
+    debug_trace: list[dict[str, Any]]        # Every API request+response captured
