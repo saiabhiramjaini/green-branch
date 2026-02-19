@@ -13,6 +13,7 @@ import {
   animate,
   type Variants,
 } from "framer-motion";
+import axios from "axios";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -49,6 +50,8 @@ import {
   Terminal,
   Activity,
   MoreHorizontal,
+  AlertCircle,
+  Play,
 } from "lucide-react";
 
 // ── GitHub Icon ────────────────────────────────────────────────────────────────
@@ -91,6 +94,7 @@ interface CIRun {
 type ExecutionStep =
   | "idle"
   | "cloning"
+  | "awaiting_commands"
   | "running_tests"
   | "analyzing"
   | "fixing"
@@ -100,6 +104,9 @@ type ExecutionStep =
 
 interface AnalysisResult {
   status: ExecutionStep;
+  session_id?: string;
+  error_message?: string;
+  failed_step?: "cloning" | "executing";
   repo_url?: string;
   branch_name?: string;
   fixes_applied?: number;
@@ -117,31 +124,24 @@ interface AnalysisResult {
   max_iterations?: number;
 }
 
-const EXECUTION_STEPS: {
-  key: ExecutionStep;
-  label: string;
-  detail: string;
-}[] = [
-  { key: "cloning", label: "Cloning repository", detail: "Fetching source from GitHub" },
-  { key: "running_tests", label: "Running test suite", detail: "Executing CI pipeline" },
-  { key: "analyzing", label: "Analyzing failures", detail: "AI inspecting error traces" },
-  { key: "fixing", label: "Applying fixes", detail: "Committing changes to branch" },
-  { key: "verifying", label: "Verifying changes", detail: "Re-running tests to confirm" },
+// Only the 4 steps shown in the execution log panel (cloning has its own phase)
+const EXECUTE_STEPS: { key: ExecutionStep; label: string; detail: string }[] = [
+  { key: "running_tests", label: "Running test suite",  detail: "Executing CI pipeline"          },
+  { key: "analyzing",     label: "Analyzing failures",  detail: "AI inspecting error traces"     },
+  { key: "fixing",        label: "Applying fixes",      detail: "Committing changes to branch"   },
+  { key: "verifying",     label: "Verifying changes",   detail: "Re-running tests to confirm"    },
 ];
 
-const mockFixes: Fix[] = [
-  { file: "src/utils.py", bug_type: "LINTING", line_number: 15, commit_message: "[AI-AGENT] Remove unused import", status: "fixed" },
-  { file: "src/validator.py", bug_type: "SYNTAX", line_number: 8, commit_message: "[AI-AGENT] Add missing colon", status: "fixed" },
-  { file: "src/api/routes.py", bug_type: "TYPE_ERROR", line_number: 42, commit_message: "[AI-AGENT] Fix type annotation", status: "fixed" },
-  { file: "src/models/user.py", bug_type: "IMPORT", line_number: 3, commit_message: "[AI-AGENT] Fix circular import", status: "fixed" },
-  { file: "src/config.py", bug_type: "LOGIC", line_number: 28, commit_message: "[AI-AGENT] Fix condition logic", status: "failed" },
-];
+function getDefaultCommands(language: string): { install: string; test: string } {
+  switch (language) {
+    case "nodejs":
+      return { install: "npm install", test: "npm test" };
+    case "python":
+    default:
+      return { install: "pip install -r requirements.txt", test: "pytest" };
+  }
+}
 
-const mockCIRuns: CIRun[] = [
-  { iteration: 1, status: "failed", timestamp: "10:30:15" },
-  { iteration: 2, status: "failed", timestamp: "10:32:45" },
-  { iteration: 3, status: "passed", timestamp: "10:35:22" },
-];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -377,26 +377,27 @@ export default function Dashboard() {
   const [result, setResult] = useState<AnalysisResult>({ status: "idle" });
   const [searchQuery, setSearchQuery] = useState("");
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [installCommand, setInstallCommand] = useState("");
+  const [testCommand, setTestCommand] = useState("");
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/signin");
   }, [status, router]);
 
   useEffect(() => {
-    if (session) {
-      fetch("/api/github/repos")
-        .then((r) => r.json())
-        .then((d) => {
-          setRepos(Array.isArray(d) ? d : []);
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    }
+    if (!session) return;
+    axios
+      .get<Repo[]>("/api/github/repos")
+      .then(({ data }) => setRepos(Array.isArray(data) ? data : []))
+      .catch(() => setRepos([]))
+      .finally(() => setLoading(false));
   }, [session]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
-    if (!["idle", "completed", "failed"].includes(result.status)) {
+    // Timer runs during active work; pause during user-interaction step
+    if (!["idle", "awaiting_commands", "completed", "failed"].includes(result.status)) {
       interval = setInterval(() => setElapsedTime((p) => p + 1), 1000);
     }
     return () => clearInterval(interval);
@@ -410,44 +411,131 @@ export default function Dashboard() {
   const formatTime = (s: number) =>
     `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
-  const handleAnalyze = async () => {
+  const mapLanguage = (lang: string | null): string => {
+    if (!lang) return "python";
+    const l = lang.toLowerCase();
+    if (l === "typescript" || l === "javascript") return "nodejs";
+    return "python";
+  };
+
+  // ── Step 1: Clone repo → transition to command review ──────────────────────
+  const handleClone = async () => {
     if (!selectedRepo) return;
     setElapsedTime(0);
-    setResult({ status: "cloning", current_iteration: 1, max_iterations: 5 });
-    const steps: ExecutionStep[] = ["cloning", "running_tests", "analyzing", "fixing", "verifying"];
-    let i = 0;
-    const interval = setInterval(() => {
-      i++;
-      if (i < steps.length) {
-        setResult((p) => ({ ...p, status: steps[i] }));
-      } else {
-        clearInterval(interval);
-        setResult({
-          status: "completed",
-          repo_url: selectedRepo.html_url,
-          branch_name: getBranchName(),
-          failures_detected: 5,
-          fixes_applied: 4,
-          ci_status: "PASSED",
-          time_taken: formatTime(elapsedTime + 5),
-          base_score: 100,
-          speed_bonus: 10,
-          efficiency_penalty: 0,
-          final_score: 110,
-          total_commits: 5,
-          fixes: mockFixes,
-          ci_runs: mockCIRuns,
-          current_iteration: 3,
-          max_iterations: 5,
-        });
-      }
-    }, 1500);
+
+    const agentUrl = process.env.NEXT_PUBLIC_EC2_AGENT_URL;
+    const userId   = session?.user?.email ?? session?.user?.name ?? "anonymous";
+    const language = mapLanguage(selectedRepo.language);
+
+    setResult({ status: "cloning" });
+
+    try {
+      const { data: sessionData } = await axios.post(
+        `${agentUrl}/api/v1/sessions`,
+        null,
+        { params: { repo_url: selectedRepo.html_url, language, user_id: userId } }
+      );
+
+      const sid = sessionData.session_id as string;
+      setSessionId(sid);
+
+      // Pre-fill commands based on detected language
+      const defaults = getDefaultCommands(language);
+      setInstallCommand(defaults.install);
+      setTestCommand(defaults.test);
+
+      setResult({ status: "awaiting_commands", session_id: sid });
+    } catch (err) {
+      const msg = axios.isAxiosError(err)
+        ? (err.response?.data?.detail ?? err.response?.data?.message ?? err.message)
+        : "Unexpected error during cloning.";
+      setResult({ status: "failed", failed_step: "cloning", error_message: String(msg) });
+    }
+  };
+
+  // ── Step 2: Execute with confirmed commands ─────────────────────────────────
+  const handleExecute = async () => {
+    if (!selectedRepo || !sessionId) return;
+
+    const agentUrl  = process.env.NEXT_PUBLIC_EC2_AGENT_URL;
+    const branchName = getBranchName();
+
+    const runSteps: ExecutionStep[] = ["running_tests", "analyzing", "fixing", "verifying"];
+    let stepIdx = 0;
+    setResult((prev) => ({ ...prev, status: runSteps[0] }));
+
+    // Advance UI steps while the long-running execute call is in-flight
+    const stepInterval = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, runSteps.length - 1);
+      setResult((prev) => ({ ...prev, status: runSteps[stepIdx] }));
+    }, 3000);
+
+    try {
+      const { data } = await axios.post(`${agentUrl}/api/v1/execute`, {
+        session_id:      sessionId,
+        branch:          "main",
+        install_command: installCommand.trim() || undefined,
+        test_command:    testCommand.trim()    || undefined,
+      });
+
+      clearInterval(stepInterval);
+
+      const isSuccess = data.status === "success";
+      const fixes: Fix[] = (data.errors ?? []).map(
+        (e: { file: string; error_type: string; line?: number; message: string }) => ({
+          file:           e.file,
+          bug_type:       e.error_type,
+          line_number:    e.line ?? 0,
+          commit_message: e.message,
+          status:         isSuccess ? ("fixed" as const) : ("failed" as const),
+        })
+      );
+
+      const duration         = Math.round(data.duration ?? elapsedTime);
+      const speedBonus       = duration < 300 ? 10 : 0;
+      const failedCount      = fixes.filter((f) => f.status === "failed").length;
+      const efficiencyPenalty = failedCount * 5;
+      const baseScore        = 100;
+      const finalScore       = baseScore + speedBonus - efficiencyPenalty;
+
+      const now = new Date();
+      const ts  = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
+
+      setResult({
+        status:              "completed",
+        session_id:          sessionId,
+        repo_url:            selectedRepo.html_url,
+        branch_name:         branchName,
+        failures_detected:   data.failed ?? fixes.length,
+        fixes_applied:       isSuccess ? fixes.length : 0,
+        ci_status:           isSuccess ? "PASSED" : "FAILED",
+        time_taken:          formatTime(duration),
+        base_score:          baseScore,
+        speed_bonus:         speedBonus,
+        efficiency_penalty:  efficiencyPenalty,
+        final_score:         finalScore,
+        total_commits:       fixes.length,
+        fixes,
+        ci_runs: [{ iteration: 1, status: isSuccess ? "passed" : "failed", timestamp: ts }],
+        current_iteration: 1,
+        max_iterations:    5,
+      });
+    } catch (err) {
+      clearInterval(stepInterval);
+      const msg = axios.isAxiosError(err)
+        ? (err.response?.data?.detail ?? err.response?.data?.message ?? err.message)
+        : "Unexpected error during execution.";
+      setResult({ status: "failed", failed_step: "executing", error_message: String(msg) });
+    }
   };
 
   const resetAnalysis = () => {
     setResult({ status: "idle" });
     setSelectedRepo(null);
     setElapsedTime(0);
+    setSessionId(null);
+    setInstallCommand("");
+    setTestCommand("");
   };
 
   const filteredRepos = repos.filter(
@@ -456,9 +544,13 @@ export default function Dashboard() {
       r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const isRunning = !["idle", "completed", "failed"].includes(result.status);
-  const currentStepIndex = EXECUTION_STEPS.findIndex((s) => s.key === result.status);
-  const progressPct = isRunning ? ((currentStepIndex + 1) / EXECUTION_STEPS.length) * 100 : 0;
+  // Active only during cloning + execute steps (not during user-interaction)
+  const isRunning = !["idle", "awaiting_commands", "completed", "failed"].includes(result.status);
+
+  const executeStepIndex = EXECUTE_STEPS.findIndex((s) => s.key === result.status);
+  const progressPct = executeStepIndex >= 0
+    ? ((executeStepIndex + 1) / EXECUTE_STEPS.length) * 100
+    : 0;
 
   if (status === "loading") {
     return (
@@ -472,7 +564,12 @@ export default function Dashboard() {
 
   if (!session) return null;
 
-  const phase = result.status === "idle" ? "idle" : isRunning ? "running" : "done";
+  const phase =
+    result.status === "idle"              ? "idle"      :
+    result.status === "cloning"           ? "cloning"   :
+    result.status === "awaiting_commands" ? "configure" :
+    isRunning                             ? "running"   :
+    "done";
 
   return (
     <div className="min-h-screen bg-background">
@@ -572,7 +669,7 @@ export default function Dashboard() {
                 >
                   <Button
                     size="default"
-                    onClick={handleAnalyze}
+                    onClick={handleClone}
                     disabled={!selectedRepo}
                     className="gap-2"
                   >
@@ -644,6 +741,155 @@ export default function Dashboard() {
             </motion.div>
           )}
 
+          {/* ─────────────── CLONING ─────────────── */}
+          {phase === "cloning" && (
+            <motion.div
+              key="cloning"
+              variants={stagger}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="space-y-6"
+            >
+              <motion.div variants={fadeUp} className="space-y-1">
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                  </span>
+                  <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                    Cloning {selectedRepo?.name}
+                  </h1>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Fetching source code from GitHub…
+                </p>
+              </motion.div>
+
+              <motion.div
+                variants={fadeUp}
+                className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4"
+              >
+                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
+                <div>
+                  <p className="text-sm font-medium text-foreground">Cloning repository</p>
+                  <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                    {selectedRepo?.html_url}
+                  </p>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* ─────────────── CONFIGURE ─────────────── */}
+          {phase === "configure" && (
+            <motion.div
+              key="configure"
+              variants={stagger}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="space-y-6"
+            >
+              {/* Header */}
+              <motion.div variants={fadeUp} className="flex items-start justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-5 w-5 text-primary" />
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                      Repository cloned
+                    </h1>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{selectedRepo?.full_name}</p>
+                </div>
+                <button
+                  onClick={resetAnalysis}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Cancel
+                </button>
+              </motion.div>
+
+              {/* Command inputs */}
+              <motion.div
+                variants={fadeUp}
+                className="space-y-5 rounded-xl border border-border bg-card p-5"
+              >
+                <div className="flex items-center gap-2 border-b border-border pb-4">
+                  <Terminal className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground">Configure commands</p>
+                  <span className="ml-auto rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-xs text-muted-foreground">
+                    {mapLanguage(selectedRepo?.language ?? null)}
+                  </span>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-foreground">
+                    Install command
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    How to install project dependencies
+                  </p>
+                  <Input
+                    value={installCommand}
+                    onChange={(e) => setInstallCommand(e.target.value)}
+                    placeholder="pip install -r requirements.txt"
+                    className="mt-1 font-mono text-sm"
+                    spellCheck={false}
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-foreground">
+                    Test command
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Command that runs your test suite
+                  </p>
+                  <Input
+                    value={testCommand}
+                    onChange={(e) => setTestCommand(e.target.value)}
+                    placeholder="pytest"
+                    className="mt-1 font-mono text-sm"
+                    spellCheck={false}
+                  />
+                </div>
+              </motion.div>
+
+              {/* Branch info */}
+              <motion.div
+                variants={fadeUp}
+                className="flex items-center gap-2.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3"
+              >
+                <GitBranch className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Fixes committed to branch</p>
+                  <code className="text-xs font-medium text-primary">{getBranchName()}</code>
+                </div>
+              </motion.div>
+
+              {/* Action */}
+              <motion.div variants={fadeUp} className="flex justify-end">
+                <motion.div
+                  whileHover={installCommand.trim() && testCommand.trim() ? { scale: 1.02 } : {}}
+                  whileTap={installCommand.trim() && testCommand.trim() ? { scale: 0.98 } : {}}
+                >
+                  <Button
+                    size="default"
+                    onClick={handleExecute}
+                    disabled={!installCommand.trim() || !testCommand.trim()}
+                    className="gap-2"
+                  >
+                    <Play className="h-4 w-4" />
+                    Run Tests
+                  </Button>
+                </motion.div>
+              </motion.div>
+            </motion.div>
+          )}
+
           {/* ─────────────── RUNNING ─────────────── */}
           {phase === "running" && (
             <motion.div
@@ -690,10 +936,10 @@ export default function Dashboard() {
                 </div>
 
                 <div className="space-y-0.5 p-3">
-                  {EXECUTION_STEPS.map((step, index) => {
-                    const isCompleted = index < currentStepIndex;
-                    const isCurrent = index === currentStepIndex;
-                    const isPending = index > currentStepIndex;
+                  {EXECUTE_STEPS.map((step, index) => {
+                    const isCompleted = index < executeStepIndex;
+                    const isCurrent = index === executeStepIndex;
+                    const isPending = index > executeStepIndex;
                     return (
                       <motion.div
                         key={step.key}
@@ -774,6 +1020,45 @@ export default function Dashboard() {
               exit="exit"
               className="space-y-6"
             >
+              {/* ── Failure state ── */}
+              {result.status === "failed" ? (
+                <>
+                  <motion.div variants={fadeUp} className="space-y-1">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                      {result.failed_step === "cloning" ? "Cloning failed" : "Execution failed"}
+                    </h1>
+                    <p className="text-sm text-muted-foreground">{selectedRepo?.full_name}</p>
+                  </motion.div>
+
+                  <motion.div
+                    variants={fadeUp}
+                    className="rounded-xl border border-destructive/30 bg-destructive/5 p-5"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+                        <AlertCircle className="h-4 w-4 text-destructive" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-foreground">
+                          {result.failed_step === "cloning"
+                            ? "Repository could not be cloned"
+                            : "Test execution could not be completed"}
+                        </p>
+                        <p className="mt-1 break-words font-mono text-xs text-muted-foreground">
+                          {result.error_message ?? "An unknown error occurred."}
+                        </p>
+                      </div>
+                    </div>
+                  </motion.div>
+
+                  <motion.div variants={fadeUp}>
+                    <Button variant="outline" onClick={resetAnalysis} className="gap-2 text-sm">
+                      <RefreshCw className="h-3.5 w-3.5" /> Try again
+                    </Button>
+                  </motion.div>
+                </>
+              ) : (
+              <>
               <motion.div variants={fadeUp} className="flex items-start justify-between">
                 <div className="space-y-1">
                   <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -965,6 +1250,8 @@ export default function Dashboard() {
                   </a>
                 </Button>
               </motion.div>
+              </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
