@@ -320,7 +320,7 @@ export default function Dashboard() {
             break;
           case "error":
             setErrorMessage(data.message);
-            setFailedStep("executing");
+            setFailedStep(data.step === "cloning" ? "cloning" : "executing");
             setPhase("failed");
             break;
           case "pr_created":

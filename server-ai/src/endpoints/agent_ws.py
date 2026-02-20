@@ -70,8 +70,12 @@ async def agent_websocket(websocket: WebSocket):
             pass
     except Exception as exc:
         logger.error(f"[WS] Unhandled error: {exc}", exc_info=True)
+        # Unwrap EC2 agent wrapper prefix for cleaner user-facing messages
+        # e.g. "EC2 agent [create_session] 500: 🔒 Repository is private…" → clean message
+        raw = str(exc)
+        clean = raw.split("]: ", 1)[-1].strip() if "]: " in raw else raw
         try:
-            await websocket.send_json({"type": "error", "message": str(exc)})
+            await websocket.send_json({"type": "error", "message": clean})
         except Exception:
             pass
     finally:

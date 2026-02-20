@@ -77,9 +77,16 @@ async def run_streaming(
             await emit({"type": "log", "line": f"  Cloned into session {session_id[:8]}…", "ts": _ts()})
             await emit({"type": "step", "step": "cloning", "status": "done"})
         except Exception as e:
-            await emit({"type": "log", "line": f"  ERROR: {e}", "ts": _ts()})
+            # Unwrap the EC2 agent error wrapper so users see only the clean message
+            # e.g. "EC2 agent [create_session] 500: 🔒 Repository is private…"
+            #      ↓ becomes just: "🔒 Repository is private…"
+            raw = str(e)
+            clean_msg = raw
+            if "]: " in raw:
+                clean_msg = raw.split("]: ", 1)[-1].strip()
+            await emit({"type": "log", "line": f"  ERROR: {clean_msg}", "ts": _ts()})
             await emit({"type": "step", "step": "cloning", "status": "error"})
-            await emit({"type": "error", "message": f"Failed to clone repository: {e}"})
+            await emit({"type": "error", "message": clean_msg, "step": "cloning"})
             return _build_result(
                 session_id="", passed=False, iteration=0,
                 fixes_applied=[], ci_timeline=[], errors_remaining=[],

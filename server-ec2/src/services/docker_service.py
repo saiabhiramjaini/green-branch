@@ -157,47 +157,98 @@ class DockerService:
         return exit_code, output_str
 
     def exec_command_streaming(
-        self, language: str, command: str, workdir: str
+        self, language: str, command: str, workdir: str, timeout_seconds: int = 180
     ) -> Generator[str, None, tuple[int, str]]:
         """Execute a command and yield output lines in real-time.
 
-        Yields each line as it is produced by the container.
-        After all lines are yielded, the full output and exit code
-        can be obtained from the generator's return value.
+        Uses a background thread + queue so we can enforce a hard timeout.
+        If the process doesn't finish within *timeout_seconds* (default 3 min)
+        we stop reading, surface a clear message, and return exit code -1.
+        This prevents watch-mode processes (vitest, jest --watch, etc.) from
+        hanging the streaming connection forever.
+
+        Yields each output line as it is produced.
+        Returns (exit_code, full_output) via StopIteration.value.
         """
+        import queue
+        import threading
+
         container_name = self.get_container_name(language)
         container = self.docker_manager.get_container(container_name)
 
         full_command = f"bash -c 'cd {workdir} && {command}'"
         logger.info(f"[STREAM] Executing in {container_name}: {command[:100]}...")
 
-        # Use Docker SDK's exec_create + exec_start for streaming + exit code
         exec_id = container.client.api.exec_create(
             container.id, full_command, stdout=True, stderr=True
         )
         stream = container.client.api.exec_start(exec_id, stream=True)
 
+        line_queue: queue.Queue[str | None] = queue.Queue()
+
+        def _producer() -> None:
+            """Run in a daemon thread — pushes lines into the queue."""
+            buffer = ""
+            try:
+                for chunk in stream:
+                    text = chunk.decode("utf-8", errors="replace")
+                    buffer += text
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line_queue.put(line)
+                if buffer.strip():
+                    line_queue.put(buffer)
+            finally:
+                line_queue.put(None)  # sentinel — signals end of stream
+
+        producer_thread = threading.Thread(target=_producer, daemon=True)
+        producer_thread.start()
+
         all_output: list[str] = []
-        buffer = ""
-        for chunk in stream:
-            text = chunk.decode("utf-8", errors="replace")
-            buffer += text
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                all_output.append(line)
-                yield line
-        # Yield any remaining partial line
-        if buffer.strip():
-            all_output.append(buffer)
-            yield buffer
+        deadline = time.time() + timeout_seconds
+        timed_out = False
 
-        # Get the exit code
-        inspect = container.client.api.exec_inspect(exec_id)
-        exit_code = inspect.get("ExitCode", -1)
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                timed_out = True
+                logger.warning(
+                    f"[STREAM] Command timed out after {timeout_seconds}s: {command[:80]}"
+                )
+                break
+            try:
+                # Poll with a short timeout so we re-check the deadline regularly
+                item = line_queue.get(timeout=min(remaining, 2.0))
+            except queue.Empty:
+                continue  # still within deadline, keep waiting
+            if item is None:
+                break  # producer finished
+            all_output.append(item)
+            yield item
+
+        if timed_out:
+            timeout_msg = (
+                f"[timeout] Command exceeded {timeout_seconds}s limit and was stopped. "
+                "If you are using a test framework in watch mode (e.g. vitest, jest --watch), "
+                "add '--run' or '--watchAll=false' to make it exit after one pass."
+            )
+            all_output.append(timeout_msg)
+            yield timeout_msg
+
+        # Retrieve exit code (may be None/-1 if timed out before process ended)
+        try:
+            inspect = container.client.api.exec_inspect(exec_id)
+            exit_code = inspect.get("ExitCode") or (-1 if timed_out else 0)
+        except Exception:
+            exit_code = -1
+
         full_output = "\n".join(all_output)
-
-        logger.info(f"[STREAM] Command finished: exit_code={exit_code}, lines={len(all_output)}")
+        logger.info(
+            f"[STREAM] Command finished: exit_code={exit_code}, "
+            f"lines={len(all_output)}, timed_out={timed_out}"
+        )
         return exit_code, full_output
+
 
     def install_dependencies(
         self, language: str, repo_path: str, custom_command: str | None = None
