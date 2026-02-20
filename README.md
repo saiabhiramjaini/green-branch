@@ -58,6 +58,8 @@
 
 GreenBranch is a **microservices-based** system with three main components:
 
+![Architecture Diagram](https://github.com/user-attachments/assets/400c4830-450b-4181-8798-b43f0639ae2a)
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      FRONTEND (Next.js)                      │
