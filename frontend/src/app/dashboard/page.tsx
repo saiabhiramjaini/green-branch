@@ -798,21 +798,31 @@ export default function Dashboard() {
           <div className="space-y-6">
             <div className="space-y-1">
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                {failedStep === "cloning" ? "Cloning failed" : "Pipeline failed"}
+                {failedStep === "cloning" ? "Could not clone repository" : "Pipeline failed"}
               </h1>
-              <p className="text-sm text-muted-foreground">{selectedRepo?.full_name}</p>
+              <p className="text-sm text-muted-foreground">{selectedRepo?.full_name || repoUrl}</p>
             </div>
             <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5 backdrop-blur-sm">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-destructive/10">
                   <AlertCircle className="h-4 w-4 text-destructive" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">
-                    {failedStep === "cloning" ? "Repository could not be cloned" : "Execution could not be completed"}
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    {(() => {
+                      const msg = errorMessage ?? "";
+                      if (msg.includes("private") || msg.includes("🔒")) return "Private repository";
+                      if (msg.includes("not found") || msg.includes("❌")) return "Repository not found";
+                      if (msg.includes("empty") || msg.includes("📭")) return "Repository is empty";
+                      if (msg.includes("Branch") || msg.includes("🌿")) return "Branch not found";
+                      if (msg.includes("Network") || msg.includes("🌐")) return "Network error";
+                      if (msg.includes("No test files") || msg.includes("test_*.py")) return "No test files found";
+                      if (failedStep === "cloning") return "Repository could not be cloned";
+                      return "Execution could not be completed";
+                    })()}
                   </p>
-                  <p className="mt-1 wrap-break-word font-mono text-xs text-muted-foreground">
-                    {errorMessage ?? "An unknown error occurred."}
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {errorMessage?.replace(/^[🔒❌📭🌿🌐]\s*/, "") ?? "An unknown error occurred."}
                   </p>
                 </div>
               </div>

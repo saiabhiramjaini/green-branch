@@ -54,8 +54,50 @@ class GitService:
             logger.info(f"Clone successful: {repo_path}")
             return repo_path
         except Exception as e:
+            err_str = str(e).lower()
             logger.error(f"Clone failed: {e}")
-            raise RepositoryCloneError(f"Failed to clone {repo_url}: {e}")
+
+            # Clean up partial clone directory if it was created
+            if os.path.exists(repo_path):
+                try:
+                    shutil.rmtree(repo_path)
+                except Exception:
+                    pass
+
+            # Classify the error into a user-friendly message
+            if "could not read username" in err_str or "authentication failed" in err_str or \
+               "invalid username or password" in err_str or "access denied" in err_str or \
+               ("remote: repository" in err_str and "not found" in err_str and not github_token):
+                raise RepositoryCloneError(
+                    "🔒 Repository is private. Please sign in with GitHub so GreenBranch "
+                    "can access it, or make the repository public."
+                )
+            elif "repository not found" in err_str or "does not exist" in err_str or \
+                 "not found" in err_str:
+                raise RepositoryCloneError(
+                    "❌ Repository not found. Please check that the URL is correct and "
+                    "the repository exists."
+                )
+            elif "remote: repository" in err_str and "empty" in err_str or \
+                 "nothing to commit" in err_str:
+                raise RepositoryCloneError(
+                    "📭 Repository is empty. Please push at least one commit before running GreenBranch."
+                )
+            elif "did not match any file(s) known" in err_str or \
+                 "remote branch" in err_str and "not found" in err_str:
+                raise RepositoryCloneError(
+                    f"🌿 Branch 'main' not found in this repository. "
+                    "Please ensure the repository has a 'main' branch, or rename the default branch."
+                )
+            elif "could not resolve host" in err_str or "network is unreachable" in err_str or \
+                 "connection refused" in err_str or "connection timed out" in err_str:
+                raise RepositoryCloneError(
+                    "🌐 Network error: Could not reach GitHub. Please check your connection and try again."
+                )
+            else:
+                raise RepositoryCloneError(
+                    f"Failed to clone repository: {e}"
+                )
 
     def create_branch(self, session_id: str, branch_name: str) -> None:
         """Create and checkout a new branch.

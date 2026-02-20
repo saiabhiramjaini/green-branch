@@ -135,6 +135,45 @@ async def run_streaming(
         passed = result.get("status") == "success"
         raw_output = result.get("raw_output", "")
 
+        # ── Detect "no tests collected" early and abort with a clear error ──
+        # Covers pytest ("collected 0 items", "no tests ran") and
+        # jest/vitest ("0 tests", "no test files found")
+        if is_first:
+            no_tests = (
+                "collected 0 items" in raw_output
+                or "no tests ran" in raw_output.lower()
+                or "no test files found" in raw_output.lower()
+                or ("error" in raw_output.lower() and "file or directory not found" in raw_output.lower())
+                or (raw_output.strip().endswith("0 passed") and "no tests" in raw_output.lower())
+            )
+            if no_tests:
+                await emit({"type": "log", "line": "", "ts": _ts()})
+                await emit({
+                    "type": "log",
+                    "line": "  ✗ No test files found in this repository.",
+                    "ts": _ts(),
+                })
+                await emit({
+                    "type": "log",
+                    "line": "  Please make sure your test command points to the correct directory",
+                    "ts": _ts(),
+                })
+                await emit({"type": "log", "line": "  and that test files follow the expected naming convention", "ts": _ts()})
+                await emit({"type": "log", "line": "  (e.g. test_*.py for pytest, *.test.ts for jest/vitest).", "ts": _ts()})
+                await emit({
+                    "type": "error",
+                    "message": (
+                        "No test files found. Please check your test command and make sure test files "
+                        "exist (e.g. test_*.py for pytest, *.test.ts for jest/vitest)."
+                    ),
+                })
+                return _build_result(
+                    session_id=session_id, passed=False, iteration=iteration,
+                    fixes_applied=[], ci_timeline=ci_timeline, errors_remaining=[],
+                    branch_name=None, commit_hash=None,
+                    time_taken=time.time() - start, repo_url=repo_url,
+                )
+
         if is_first:
             total_failures = len(errors)
 

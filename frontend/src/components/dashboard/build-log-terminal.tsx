@@ -22,7 +22,7 @@ export function BuildLogTerminal({ logs, isStreaming }: { logs: LogLine[]; isStr
   }, []);
 
   const handleCopy = useCallback(() => {
-    const text = logs.map((l) => `${l.ts} ${l.line}`).join("\n");
+    const text = logs.map((l) => l.line).join("\n");
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -139,10 +139,6 @@ export function BuildLogTerminal({ logs, isStreaming }: { logs: LogLine[]; isStr
                       {/* Line number gutter */}
                       <td className="w-[3.5rem] select-none border-r border-zinc-800/50 px-2 text-right align-top font-mono text-[11px] text-zinc-700 group-hover:text-zinc-500">
                         {i + 1}
-                      </td>
-                      {/* Timestamp */}
-                      <td className="w-[4.5rem] select-none px-2 text-right align-top text-[11px] text-zinc-600">
-                        {log.ts}
                       </td>
                       {/* Content */}
                       <td className={`px-2 whitespace-pre-wrap break-all ${getLineClass(log.line)}`}>

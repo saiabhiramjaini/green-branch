@@ -32,6 +32,85 @@ class DockerService:
         "nodejs": "npm test 2>&1",
     }
 
+    @staticmethod
+    def _normalize_test_command(cmd: str, host_repo_path: str | None = None) -> str:
+        """Normalize a user-supplied test command before executing it.
+
+        Handles three known problem cases:
+        1. **Vitest explicit** — `vitest` without ``--run`` blocks forever in
+           watch mode.  We inject ``--run`` automatically.
+        2. **Vitest via npm** — `npm test` / `npm run test` that delegates to
+           vitest. We detect this from ``package.json`` and swap the command
+           to ``npx vitest --run`` so it exits after one pass.
+        3. **pytest with an explicit dir** — ``pytest test/`` or ``pytest tests/``
+           fails with "file or directory not found" when the path doesn't exist.
+           We strip the path and let pytest auto-discover instead.
+        """
+        import json
+        import re
+        stripped = cmd.strip()
+
+        # ── Vitest explicit: add --run [✓ catches `vitest`, `npx vitest`, etc.] ──
+        if re.search(r'\bvitest\b', stripped, re.IGNORECASE):
+            if '--run' not in stripped:
+                stripped = re.sub(
+                    r'(\bvitest\b)',
+                    r'\1 --run',
+                    stripped,
+                    count=1,
+                    flags=re.IGNORECASE,
+                )
+                logger.info(f"[normalize] Added --run to vitest command: {stripped}")
+            return stripped
+
+        # ── npm test / npm run test → check if underlying runner is vitest ──
+        is_npm_test = bool(re.match(r'^npm\s+(run\s+)?test', stripped, re.IGNORECASE))
+        if is_npm_test and host_repo_path:
+            # host_repo_path may be the container-visible path (/repos/session_id).
+            # Remap to the actual host path so we can read package.json from disk.
+            try:
+                from src.app.config import api_settings as _settings
+                container_prefix = _settings.container_repos_path  # e.g. /repos
+                if host_repo_path.startswith(container_prefix):
+                    session_part = host_repo_path[len(container_prefix):].lstrip("/")
+                    host_path = os.path.join(_settings.repos_base_path, session_part)
+                else:
+                    host_path = host_repo_path
+            except Exception:
+                host_path = host_repo_path
+
+            pkg_path = os.path.join(host_path, "package.json")
+            try:
+                with open(pkg_path, "r", encoding="utf-8") as fh:
+                    pkg = json.load(fh)
+                # Check scripts.test and devDependencies / dependencies for vitest
+                test_script = pkg.get("scripts", {}).get("test", "")
+                deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+                uses_vitest = "vitest" in test_script or "vitest" in deps
+                if uses_vitest:
+                    stripped = "npx vitest --run 2>&1"
+                    logger.info(f"[normalize] Detected vitest via package.json, overriding: {stripped}")
+                    return stripped
+            except Exception as exc:
+                logger.debug(f"[normalize] Could not read package.json: {exc}")
+
+
+        # ── pytest: strip explicit test directory paths ───────────────────────
+        if re.search(r'\bpytest\b', stripped, re.IGNORECASE):
+            cleaned = re.sub(
+                r'(?<=\s)(tests?/?)(?=\s|$)',
+                '',
+                ' ' + stripped,
+            ).strip()
+            if cleaned != stripped:
+                logger.info(
+                    f"[normalize] Stripped test dir from pytest command: "
+                    f"{stripped!r} → {cleaned!r}"
+                )
+                stripped = cleaned
+
+        return stripped
+
     def __init__(self):
         self.docker_manager = DockerManager()
 
@@ -160,7 +239,7 @@ class DockerService:
             exit_code 0 = all passed, non-zero = failures.
         """
         if custom_command:
-            test_cmd = custom_command + " 2>&1"
+            test_cmd = self._normalize_test_command(custom_command, repo_path) + " 2>&1"
             logger.info(f"Using custom test command: {test_cmd[:100]}")
         else:
             test_cmd = self.TEST_COMMANDS.get(language)
@@ -196,5 +275,6 @@ class DockerService:
         self, language: str, repo_path: str, custom_command: str | None = None
     ) -> Generator[str, None, tuple[int, str]]:
         """Run tests, yielding output lines in real-time."""
-        cmd = self._resolve_command(language, custom_command, self.TEST_COMMANDS, "test")
+        normalized = self._normalize_test_command(custom_command, repo_path) if custom_command else None
+        cmd = self._resolve_command(language, normalized, self.TEST_COMMANDS, "test")
         return self.exec_command_streaming(language, cmd, repo_path)

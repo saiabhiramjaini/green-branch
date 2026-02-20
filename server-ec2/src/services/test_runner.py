@@ -4,6 +4,7 @@ import logging
 import os
 import time
 
+from src.app.config import api_settings
 from src.models.execution import ExecuteTestsRequest, ExecuteTestsResponse, TestError
 from src.services.docker_service import DockerService
 from src.services.git_service import GitService
