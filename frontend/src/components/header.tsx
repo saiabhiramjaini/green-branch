@@ -49,12 +49,6 @@ export function Header({ variant = "landing" }: HeaderProps) {
         </Link>
 
         <nav className="flex items-center gap-4">
-          <Link href="/debug">
-            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground hover:text-primary hover:bg-primary/5 transition-all duration-300">
-              <Terminal className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Debug</span>
-            </Button>
-          </Link>
           {variant === "landing" && !session && (
             <Link href="/signin">
               <Button

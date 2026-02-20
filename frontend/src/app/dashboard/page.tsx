@@ -12,10 +12,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Search, CheckCircle2, XCircle, Loader2, GitBranch, LogOut, User, ChevronRight, Timer, RefreshCw, ArrowUpRight, Play, AlertCircle, GitPullRequest, ExternalLink, Link as LinkIcon, Users, UserCircle } from "lucide-react";
-import { PRSuccessDialog } from "@/components/ui/dialog";
+import { PRSuccessAlertDialog } from "../../components/dashboard/PRSuccessDialog";
+import { CreatePRDialog } from "../../components/dashboard/CreatePRDialog";
 import { BuildLogTerminal } from "../../components/dashboard/build-log-terminal";
 import { StepTracker } from "../../components/dashboard/StepTracker";
-import { FixCard } from "../../components/dashboard/FixCard";
 import { FixesTable } from "../../components/dashboard/FixesTable";
 import { CITimeline } from "../../components/dashboard/CITimeline";
 import { RepoCard, RepoCardSkeleton } from "../../components/dashboard/RepoCard";
@@ -63,6 +63,7 @@ export default function Dashboard() {
   const [prLoading, setPrLoading] = useState(false);
   const [prError, setPrError] = useState<string | null>(null);
   const [showPrDialog, setShowPrDialog] = useState(false);
+  const [showCreatePRDialog, setShowCreatePRDialog] = useState(false);
   const [prRepoName, setPrRepoName] = useState<string | undefined>(undefined);
 
   const [finalResult, setFinalResult] = useState<{
@@ -78,6 +79,7 @@ export default function Dashboard() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const prCreatedRef = useRef<boolean>(false); // Track if PR was auto-created
 
   // Load pre-filled values from localStorage FIRST (from landing page modal)
   // This must run before auth check to detect URL flow
@@ -193,6 +195,7 @@ export default function Dashboard() {
     setElapsedTime(0);
     setFinalResult(null);
     setErrorMessage(null);
+    prCreatedRef.current = false; // Reset PR created flag
 
     updateStep("cloning", "running");
     setLogs([{ line: `$ git clone ${effectiveRepo.html_url}`, ts: new Date().toLocaleTimeString("en-GB", { hour12: false }) }]);
@@ -248,6 +251,8 @@ export default function Dashboard() {
     setCIRuns([]);
     setFinalResult(null);
     setErrorMessage(null);
+    prCreatedRef.current = false; // Reset PR created flag
+    setPrUrl(null); // Reset PR URL
 
     const branchName = teamName && teamLeaderName
       ? getTeamBranchName(teamName, teamLeaderName)
@@ -298,6 +303,17 @@ export default function Dashboard() {
           case "complete":
             setFinalResult(data.result);
             setPhase("done");
+            // Show appropriate dialog if tests passed and there are fixes
+            if (data.result?.passed && data.result?.branch_name) {
+              // Check if PR was already auto-created by backend
+              if (prCreatedRef.current) {
+                // PR already exists - show success dialog
+                setShowPrDialog(true);
+              } else {
+                // No PR yet - show confirmation dialog for user to create
+                setShowCreatePRDialog(true);
+              }
+            }
             break;
           case "error":
             setErrorMessage(data.message);
@@ -305,9 +321,10 @@ export default function Dashboard() {
             setPhase("failed");
             break;
           case "pr_created":
+            // PR was auto-created by backend - store URL
             setPrUrl(data.pr_url);
             setPrRepoName(data.repo_name);
-            setShowPrDialog(true);
+            prCreatedRef.current = true; // Mark that PR was created
             break;
         }
       } catch {
@@ -355,6 +372,16 @@ export default function Dashboard() {
     setRepoUrl("");
     setInputMode("select");
     setSelectedLanguage("nodejs");
+    setShowCreatePRDialog(false);
+    prCreatedRef.current = false;
+  };
+
+  // Handler for when PR is successfully created
+  const handlePRCreated = (prUrlResult: string, repoName: string) => {
+    setPrUrl(prUrlResult);
+    setPrRepoName(repoName);
+    setShowCreatePRDialog(false);
+    setShowPrDialog(true);
   };
 
   const filteredRepos = repos.filter(
@@ -946,12 +973,34 @@ export default function Dashboard() {
 
             {ciRuns.length > 0 && <CITimeline runs={ciRuns} maxIterations={maxIterations} />}
 
+            {/* ── Create PR Confirmation Dialog ── */}
+            <CreatePRDialog
+              open={showCreatePRDialog}
+              onOpenChange={setShowCreatePRDialog}
+              repoUrl={selectedRepo?.html_url || ""}
+              branchName={finalResult?.branch_name || ""}
+              baseBranch="main"
+              commitHash={finalResult?.commit_hash || undefined}
+              fixes={fixes}
+              timeTaken={finalResult?.time_taken_seconds}
+              teamName={teamName}
+              teamLeaderName={teamLeaderName}
+              githubToken={(session as any)?.accessToken}
+              onPRCreated={handlePRCreated}
+            />
+
             {/* ── PR Success Dialog ── */}
-            <PRSuccessDialog
+            <PRSuccessAlertDialog
               open={showPrDialog}
               onOpenChange={setShowPrDialog}
               prUrl={prUrl || ""}
               repoName={prRepoName}
+              branchName={finalResult?.branch_name || undefined}
+              commitHash={finalResult?.commit_hash || undefined}
+              fixes={fixes}
+              timeTaken={finalResult?.time_taken_seconds}
+              teamName={teamName}
+              teamLeaderName={teamLeaderName}
             />
 
             {/* ── Persistent "View PR" button if PR exists ── */}
