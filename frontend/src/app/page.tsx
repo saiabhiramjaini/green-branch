@@ -1,9 +1,19 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Header } from "@/components/header";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Zap,
   Bot,
@@ -14,6 +24,10 @@ import {
   ArrowRight,
   Play,
   Sparkles,
+  Link as LinkIcon,
+  Users,
+  UserCircle,
+  Rocket,
 } from "lucide-react";
 
 function GitHubIcon({ className }: { className?: string }) {
@@ -84,7 +98,32 @@ const features = [
   },
 ];
 
+// Helper function for branch name preview
+function getTeamBranchName(teamName: string, leaderName: string): string {
+  const sanitize = (str: string) =>
+    str.toUpperCase().replace(/\s+/g, "_").replace(/[^A-Z0-9_]/g, "");
+  return `${sanitize(teamName)}_${sanitize(leaderName)}_AI_Fix`;
+}
+
 export default function Home() {
+  const router = useRouter();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [teamName, setTeamName] = useState("");
+  const [teamLeaderName, setTeamLeaderName] = useState("");
+
+  const handleRunAgent = () => {
+    // Store values in localStorage so dashboard can read them
+    localStorage.setItem("greenbranch_repo_url", repoUrl);
+    localStorage.setItem("greenbranch_team_name", teamName);
+    localStorage.setItem("greenbranch_team_leader", teamLeaderName);
+
+    // Navigate to dashboard
+    router.push("/dashboard");
+  };
+
+  const isFormValid = repoUrl.trim() && teamName.trim() && teamLeaderName.trim();
+
   return (
     <div className="flex min-h-screen flex-col bg-background aurora-bg">
       <Header variant="landing" />
@@ -126,20 +165,24 @@ export default function Home() {
 
               {/* CTA */}
               <div className="mt-12 flex flex-col items-center justify-center gap-4 sm:flex-row animate-fade-in-up stagger-3" style={{ opacity: 0 }}>
+                <Button
+                  size="lg"
+                  onClick={() => setIsModalOpen(true)}
+                  className="w-full gap-2.5 sm:w-auto text-base px-8 py-6 rounded-xl animate-pulse-glow"
+                >
+                  <Rocket className="h-5 w-5" />
+                  Run Agent
+                </Button>
                 <Link href="/signin">
-                  <Button size="lg" className="w-full gap-2.5 sm:w-auto text-base px-8 py-6 rounded-xl animate-pulse-glow">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="w-full gap-2.5 sm:w-auto text-base px-8 py-6 rounded-xl border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-all duration-300"
+                  >
                     <GitHubIcon className="h-5 w-5" />
                     Sign in with GitHub
                   </Button>
                 </Link>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="w-full gap-2.5 sm:w-auto text-base px-8 py-6 rounded-xl border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-all duration-300"
-                >
-                  <Play className="h-4 w-4" />
-                  View Demo
-                </Button>
               </div>
 
               {/* Floating feature pills */}
@@ -335,6 +378,92 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Run Agent Modal */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="glass-card border-border/50 sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Rocket className="h-5 w-5 text-primary" />
+              Run GreenBranch Agent
+            </DialogTitle>
+            <DialogDescription>
+              Enter repository details to start autonomous CI/CD healing.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 pt-4">
+            {/* Repository URL */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                <LinkIcon className="h-3.5 w-3.5" /> GitHub Repository URL
+              </label>
+              <Input
+                placeholder="https://github.com/username/repository"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                className="bg-secondary/30 font-mono text-sm"
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Team Info */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5" /> Team Name
+                </label>
+                <Input
+                  placeholder="e.g., RIFT ORGANISERS"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  className="bg-secondary/30"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                  <UserCircle className="h-3.5 w-3.5" /> Team Leader Name
+                </label>
+                <Input
+                  placeholder="e.g., Saiyam Kumar"
+                  value={teamLeaderName}
+                  onChange={(e) => setTeamLeaderName(e.target.value)}
+                  className="bg-secondary/30"
+                />
+              </div>
+            </div>
+
+            {/* Branch Preview */}
+            {teamName && teamLeaderName && (
+              <div className="flex items-center gap-2.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                <GitBranch className="h-4 w-4 text-primary" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Branch will be named</p>
+                  <code className="text-sm font-medium text-primary">
+                    {getTeamBranchName(teamName, teamLeaderName)}
+                  </code>
+                </div>
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <Button
+              onClick={handleRunAgent}
+              disabled={!isFormValid}
+              className="w-full gap-2 rounded-xl py-5 transition-all duration-300 hover:shadow-[0_0_20px_rgba(74,222,128,0.2)]"
+            >
+              <Play className="h-4 w-4" />
+              Analyze Repository
+            </Button>
+
+            {!isFormValid && (repoUrl || teamName || teamLeaderName) && (
+              <p className="text-xs text-amber-500 text-center">
+                Please fill in all fields to continue
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

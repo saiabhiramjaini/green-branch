@@ -11,15 +11,17 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Search, CheckCircle2, XCircle, Loader2, GitBranch, LogOut, User, ChevronRight, Timer, RefreshCw, ArrowUpRight, Play, AlertCircle, GitPullRequest, ExternalLink } from "lucide-react";
+import { Search, CheckCircle2, XCircle, Loader2, GitBranch, LogOut, User, ChevronRight, Timer, RefreshCw, ArrowUpRight, Play, AlertCircle, GitPullRequest, ExternalLink, Link as LinkIcon, Users, UserCircle } from "lucide-react";
 import { PRSuccessDialog } from "@/components/ui/dialog";
 import { BuildLogTerminal } from "../../components/dashboard/build-log-terminal";
 import { StepTracker } from "../../components/dashboard/StepTracker";
 import { FixCard } from "../../components/dashboard/FixCard";
+import { FixesTable } from "../../components/dashboard/FixesTable";
 import { CITimeline } from "../../components/dashboard/CITimeline";
 import { RepoCard, RepoCardSkeleton } from "../../components/dashboard/RepoCard";
 import { GitHubIcon } from "../../components/dashboard/GitHubIcon";
-import { getDefaultCommands, formatTime, mapLanguage, getBranchName } from "./utils";
+import { ScoreBreakdown } from "../../components/dashboard/ScoreBreakdown";
+import { getDefaultCommands, formatTime, mapLanguage, getBranchName, getTeamBranchName } from "./utils";
 import { Repo, Fix, CIRun, LogLine, PipelineStep, StepStatus, StepState, Phase } from "./types";
 
 
@@ -33,6 +35,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Team info and direct URL input
+  const [teamName, setTeamName] = useState("");
+  const [teamLeaderName, setTeamLeaderName] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [inputMode, setInputMode] = useState<"select" | "url">("select");
+  const [isUrlFlow, setIsUrlFlow] = useState(false); // Track if coming from URL flow (no auth needed)
+  const [selectedLanguage, setSelectedLanguage] = useState<"nodejs" | "python">("nodejs"); // Language for URL input mode
 
   const [installCommand, setInstallCommand] = useState("");
   const [testCommand, setTestCommand] = useState("");
@@ -69,9 +79,35 @@ export default function Dashboard() {
   const wsRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Load pre-filled values from localStorage FIRST (from landing page modal)
+  // This must run before auth check to detect URL flow
   useEffect(() => {
-    if (status === "unauthenticated") router.push("/signin");
-  }, [status, router]);
+    const savedRepoUrl = localStorage.getItem("greenbranch_repo_url");
+    const savedTeamName = localStorage.getItem("greenbranch_team_name");
+    const savedTeamLeader = localStorage.getItem("greenbranch_team_leader");
+
+    if (savedRepoUrl) {
+      setRepoUrl(savedRepoUrl);
+      setInputMode("url");
+      setIsUrlFlow(true); // Mark as URL flow - no auth needed
+      localStorage.removeItem("greenbranch_repo_url");
+    }
+    if (savedTeamName) {
+      setTeamName(savedTeamName);
+      localStorage.removeItem("greenbranch_team_name");
+    }
+    if (savedTeamLeader) {
+      setTeamLeaderName(savedTeamLeader);
+      localStorage.removeItem("greenbranch_team_leader");
+    }
+  }, []);
+
+  // Only redirect to signin if NOT in URL flow mode
+  useEffect(() => {
+    if (status === "unauthenticated" && !isUrlFlow) {
+      router.push("/signin");
+    }
+  }, [status, router, isUrlFlow]);
 
   useEffect(() => {
     if (!session) return;
@@ -119,11 +155,35 @@ export default function Dashboard() {
 
   // ── Clone ─────────────────────────────────────────────────────────────
   const handleClone = async () => {
-    if (!selectedRepo) return;
+    // Support both URL input mode and repo selection mode
+    const repoUrlToUse = inputMode === "url" ? repoUrl.trim() : selectedRepo?.html_url;
+    if (!repoUrlToUse) return;
+
+    // Create a temporary repo object for URL mode
+    const effectiveRepo = inputMode === "url"
+      ? {
+          id: Date.now(),
+          name: repoUrl.split("/").pop() || "repository",
+          full_name: repoUrl.replace("https://github.com/", ""),
+          private: false,
+          html_url: repoUrl.trim(),
+          description: null,
+          updated_at: new Date().toISOString(),
+          language: null,
+        }
+      : selectedRepo;
+
+    if (!effectiveRepo) return;
+
+    // Set the effective repo as selected for the rest of the flow
+    if (inputMode === "url") {
+      setSelectedRepo(effectiveRepo);
+    }
 
     const agentUrl = process.env.NEXT_PUBLIC_EC2_AGENT_URL;
     const userId = session?.user?.email ?? session?.user?.name ?? "anonymous";
-    const language = mapLanguage(selectedRepo.language);
+    // Use selectedLanguage for URL mode, otherwise detect from repo
+    const language = inputMode === "url" ? selectedLanguage : mapLanguage(effectiveRepo.language);
 
     setPhase("streaming");
     setLogs([]);
@@ -135,14 +195,14 @@ export default function Dashboard() {
     setErrorMessage(null);
 
     updateStep("cloning", "running");
-    setLogs([{ line: `$ git clone ${selectedRepo.html_url}`, ts: new Date().toLocaleTimeString("en-GB", { hour12: false }) }]);
+    setLogs([{ line: `$ git clone ${effectiveRepo.html_url}`, ts: new Date().toLocaleTimeString("en-GB", { hour12: false }) }]);
 
     try {
       const token = (session as any)?.accessToken;
       const { data: sessionData } = await axios.post(
         `${agentUrl}/api/v1/sessions`,
         null,
-        { params: { repo_url: selectedRepo.html_url, language, user_id: userId, github_token: token || undefined } }
+        { params: { repo_url: effectiveRepo.html_url, language, user_id: userId, github_token: token || undefined } }
       );
 
       const sid = sessionData.session_id as string;
@@ -189,7 +249,9 @@ export default function Dashboard() {
     setFinalResult(null);
     setErrorMessage(null);
 
-    const branchName = getBranchName(selectedRepo.name);
+    const branchName = teamName && teamLeaderName
+      ? getTeamBranchName(teamName, teamLeaderName)
+      : getBranchName(selectedRepo.name);
     const ws = new WebSocket(`${serverWsUrl}/agent/ws`);
     wsRef.current = ws;
 
@@ -197,7 +259,7 @@ export default function Dashboard() {
       ws.send(
         JSON.stringify({
           repo_url: selectedRepo.html_url,
-          language: mapLanguage(selectedRepo.language),
+          language: inputMode === "url" ? selectedLanguage : mapLanguage(selectedRepo.language),
           install_command: installCommand.trim() || undefined,
           test_command: testCommand.trim() || undefined,
           branch: "main",
@@ -290,6 +352,9 @@ export default function Dashboard() {
     setPrUrl(null);
     setPrLoading(false);
     setPrError(null);
+    setRepoUrl("");
+    setInputMode("select");
+    setSelectedLanguage("nodejs");
   };
 
   const filteredRepos = repos.filter(
@@ -298,7 +363,8 @@ export default function Dashboard() {
       r.full_name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  if (status === "loading") {
+  // Show loading only if not in URL flow and auth is loading
+  if (status === "loading" && !isUrlFlow) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -306,7 +372,8 @@ export default function Dashboard() {
     );
   }
 
-  if (!session) return null;
+  // Allow URL flow to proceed without session
+  if (!session && !isUrlFlow) return null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -332,37 +399,45 @@ export default function Dashboard() {
               </div>
             )}
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 rounded-full p-0">
-                  <Avatar className="h-8 w-8 ring-2 ring-primary/20 ring-offset-1 ring-offset-background transition-all hover:ring-primary/40">
-                    <AvatarImage src={session.user?.image || ""} alt={session.user?.name || "User"} />
-                    <AvatarFallback className="bg-primary/10 text-xs text-primary">
-                      {session.user?.name?.charAt(0).toUpperCase() || "U"}
-                    </AvatarFallback>
-                  </Avatar>
+            {session ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-8 rounded-full p-0">
+                    <Avatar className="h-8 w-8 ring-2 ring-primary/20 ring-offset-1 ring-offset-background transition-all hover:ring-primary/40">
+                      <AvatarImage src={session.user?.image || ""} alt={session.user?.name || "User"} />
+                      <AvatarFallback className="bg-primary/10 text-xs text-primary">
+                        {session.user?.name?.charAt(0).toUpperCase() || "U"}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52 glass-card rounded-xl border-border/50">
+                  <div className="px-3 py-2">
+                    <p className="text-sm font-medium text-foreground">{session.user?.name}</p>
+                    <p className="text-xs text-muted-foreground">{session.user?.email}</p>
+                  </div>
+                  <DropdownMenuSeparator className="bg-border/50" />
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard" className="flex items-center gap-2">
+                      <User className="h-3.5 w-3.5" /> Dashboard
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-border/50" />
+                  <DropdownMenuItem
+                    onClick={() => signOut({ callbackUrl: "/" })}
+                    className="flex items-center gap-2 text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="h-3.5 w-3.5" /> Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Link href="/signin">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <GitHubIcon className="h-4 w-4" /> Sign in
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52 glass-card rounded-xl border-border/50">
-                <div className="px-3 py-2">
-                  <p className="text-sm font-medium text-foreground">{session.user?.name}</p>
-                  <p className="text-xs text-muted-foreground">{session.user?.email}</p>
-                </div>
-                <DropdownMenuSeparator className="bg-border/50" />
-                <DropdownMenuItem asChild>
-                  <Link href="/dashboard" className="flex items-center gap-2">
-                    <User className="h-3.5 w-3.5" /> Dashboard
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-border/50" />
-                <DropdownMenuItem
-                  onClick={() => signOut({ callbackUrl: "/" })}
-                  className="flex items-center gap-2 text-destructive focus:text-destructive"
-                >
-                  <LogOut className="h-3.5 w-3.5" /> Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -374,60 +449,207 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <div className="space-y-1">
                 <h1 className="text-2xl font-semibold tracking-tight text-foreground">Projects</h1>
-                <p className="text-sm text-muted-foreground">Select a repository to run autonomous CI healing.</p>
+                <p className="text-sm text-muted-foreground">Enter repository details or select from your GitHub repos.</p>
               </div>
-              <Button onClick={handleClone} disabled={!selectedRepo} className="gap-2 rounded-xl px-6 transition-all duration-300 hover:shadow-[0_0_20px_rgba(74,222,128,0.2)]">
-                Run GreenBranch <ChevronRight className="h-4 w-4" />
-              </Button>
             </div>
 
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search repositories..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-secondary/30 pl-9"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {loading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="animate-pulse">
-                    <RepoCardSkeleton />
-                  </div>
-                ))
-              ) : filteredRepos.length === 0 ? (
-                <div className="col-span-2 py-16 text-center text-sm text-muted-foreground">
-                  {searchQuery ? "No repositories match your search" : "No repositories found"}
+            {/* Team Info Input Section */}
+            <div className="glass-card rounded-2xl p-6 space-y-5">
+              <div className="flex items-center gap-2 border-b border-border/50 pb-4">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
+                  <Users className="h-4 w-4 text-primary" />
                 </div>
-              ) : (
-                filteredRepos.map((repo) => (
-                  <RepoCard
-                    key={repo.id}
-                    repo={repo}
-                    onSelect={() => setSelectedRepo(selectedRepo?.id === repo.id ? null : repo)}
-                    isSelected={selectedRepo?.id === repo.id}
-                    disabled={false}
+                <div>
+                  <p className="text-sm font-medium text-foreground">Team Information</p>
+                  <p className="text-xs text-muted-foreground">Required for branch naming convention</p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                    <Users className="h-3 w-3" /> Team Name
+                  </label>
+                  <Input
+                    placeholder="e.g., RIFT ORGANISERS"
+                    value={teamName}
+                    onChange={(e) => setTeamName(e.target.value)}
+                    className="bg-secondary/30"
                   />
-                ))
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                    <UserCircle className="h-3 w-3" /> Team Leader Name
+                  </label>
+                  <Input
+                    placeholder="e.g., Saiyam Kumar"
+                    value={teamLeaderName}
+                    onChange={(e) => setTeamLeaderName(e.target.value)}
+                    className="bg-secondary/30"
+                  />
+                </div>
+              </div>
+
+              {teamName && teamLeaderName && (
+                <div className="flex items-center gap-2.5 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                  <GitBranch className="h-3.5 w-3.5 text-primary" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Branch will be named</p>
+                    <code className="text-xs font-medium text-primary">{getTeamBranchName(teamName, teamLeaderName)}</code>
+                  </div>
+                </div>
               )}
             </div>
 
-            {selectedRepo && (
-              <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-4 py-3.5 backdrop-blur-sm">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-                    <GitBranch className="h-3.5 w-3.5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Will create branch</p>
-                    <code className="text-xs font-medium text-primary">{getBranchName(selectedRepo.name)}</code>
+            {/* Input Mode Toggle - only show if authenticated */}
+            {session && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={inputMode === "url" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setInputMode("url")}
+                  className="gap-2"
+                >
+                  <LinkIcon className="h-3.5 w-3.5" /> Enter URL
+                </Button>
+                <Button
+                  variant={inputMode === "select" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setInputMode("select")}
+                  className="gap-2"
+                >
+                  <GitHubIcon className="h-3.5 w-3.5" /> Select from GitHub
+                </Button>
+              </div>
+            )}
+
+            {/* URL Input Mode */}
+            {inputMode === "url" && (
+              <div className="glass-card rounded-2xl p-6 space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                    <LinkIcon className="h-3 w-3" /> GitHub Repository URL
+                  </label>
+                  <p className="text-xs text-muted-foreground">Paste the full URL of the repository to analyze</p>
+                  <Input
+                    placeholder="https://github.com/username/repository"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    className="bg-secondary/30 font-mono text-sm"
+                    spellCheck={false}
+                  />
+                </div>
+
+                {/* Language Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-foreground">Project Language</label>
+                  <p className="text-xs text-muted-foreground">Select the primary language of your project</p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={selectedLanguage === "nodejs" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedLanguage("nodejs")}
+                      className="flex-1"
+                    >
+                      JavaScript / TypeScript
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={selectedLanguage === "python" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setSelectedLanguage("python")}
+                      className="flex-1"
+                    >
+                      Python
+                    </Button>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">Your main branch stays untouched.</p>
+
+                <Button
+                  onClick={handleClone}
+                  disabled={!repoUrl.trim() || !teamName.trim() || !teamLeaderName.trim()}
+                  className="w-full gap-2 rounded-xl transition-all duration-300 hover:shadow-[0_0_20px_rgba(74,222,128,0.2)]"
+                >
+                  <Play className="h-4 w-4" /> Analyze Repository
+                </Button>
+
+                {(!teamName.trim() || !teamLeaderName.trim()) && repoUrl.trim() && (
+                  <p className="text-xs text-amber-500 flex items-center gap-1.5">
+                    <AlertCircle className="h-3 w-3" /> Please fill in team name and leader name above
+                  </p>
+                )}
               </div>
+            )}
+
+            {/* Select from GitHub Mode */}
+            {inputMode === "select" && (
+              <>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search repositories..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-secondary/30 pl-9"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {loading ? (
+                    Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="animate-pulse">
+                        <RepoCardSkeleton />
+                      </div>
+                    ))
+                  ) : filteredRepos.length === 0 ? (
+                    <div className="col-span-2 py-16 text-center text-sm text-muted-foreground">
+                      {searchQuery ? "No repositories match your search" : "No repositories found"}
+                    </div>
+                  ) : (
+                    filteredRepos.map((repo) => (
+                      <RepoCard
+                        key={repo.id}
+                        repo={repo}
+                        onSelect={() => setSelectedRepo(selectedRepo?.id === repo.id ? null : repo)}
+                        isSelected={selectedRepo?.id === repo.id}
+                        disabled={false}
+                      />
+                    ))
+                  )}
+                </div>
+
+                {selectedRepo && (
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3.5 backdrop-blur-sm flex-1">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
+                        <GitBranch className="h-3.5 w-3.5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Will create branch</p>
+                        <code className="text-xs font-medium text-primary">
+                          {teamName && teamLeaderName
+                            ? getTeamBranchName(teamName, teamLeaderName)
+                            : getBranchName(selectedRepo.name)}
+                        </code>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleClone}
+                      disabled={!selectedRepo || !teamName.trim() || !teamLeaderName.trim()}
+                      className="gap-2 rounded-xl px-6 transition-all duration-300 hover:shadow-[0_0_20px_rgba(74,222,128,0.2)]"
+                    >
+                      Run GreenBranch <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+
+                {selectedRepo && (!teamName.trim() || !teamLeaderName.trim()) && (
+                  <p className="text-xs text-amber-500 flex items-center gap-1.5">
+                    <AlertCircle className="h-3 w-3" /> Please fill in team name and leader name above
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
@@ -453,7 +675,7 @@ export default function Dashboard() {
                 {/* Terminal icon is now handled in BuildLogTerminal component */}
                 <p className="text-sm font-medium text-foreground">Configure commands</p>
                 <span className="ml-auto rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-xs text-primary">
-                  {mapLanguage(selectedRepo.language ?? null)}
+                  {inputMode === "url" ? selectedLanguage : mapLanguage(selectedRepo.language ?? null)}
                 </span>
               </div>
 
@@ -474,7 +696,11 @@ export default function Dashboard() {
               <GitBranch className="h-3.5 w-3.5 shrink-0 text-primary" />
               <div>
                 <p className="text-xs text-muted-foreground">Fixes committed to branch</p>
-                <code className="text-xs font-medium text-primary">{getBranchName(selectedRepo.name)}</code>
+                <code className="text-xs font-medium text-primary">
+                  {teamName && teamLeaderName
+                    ? getTeamBranchName(teamName, teamLeaderName)
+                    : getBranchName(selectedRepo.name)}
+                </code>
               </div>
             </div>
 
@@ -590,7 +816,66 @@ export default function Dashboard() {
               </Badge>
             </div>
 
-            {/* Stats — no score */}
+            {/* Run Summary Card */}
+            <div className="glass-card rounded-2xl p-6 space-y-4">
+              <div className="flex items-center gap-2 border-b border-border/50 pb-4">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
+                  <GitHubIcon className="h-4 w-4 text-primary" />
+                </div>
+                <h3 className="text-sm font-semibold text-foreground">Run Summary</h3>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Repository</span>
+                    <a href={selectedRepo.html_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-mono text-xs truncate max-w-[200px]">
+                      {selectedRepo.full_name}
+                    </a>
+                  </div>
+                  {teamName && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Team Name</span>
+                      <span className="text-foreground font-medium">{teamName}</span>
+                    </div>
+                  )}
+                  {teamLeaderName && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Team Leader</span>
+                      <span className="text-foreground font-medium">{teamLeaderName}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  {finalResult?.branch_name && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Branch Created</span>
+                      <code className="text-primary text-xs font-mono truncate max-w-[200px]">{finalResult.branch_name}</code>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Time Taken</span>
+                    <span className="text-foreground font-mono">
+                      {finalResult?.time_taken_seconds ? formatTime(Math.round(finalResult.time_taken_seconds)) : "0:00"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">CI/CD Status</span>
+                    <Badge variant={finalResult?.passed ? "default" : "destructive"} className="text-xs">
+                      {finalResult?.passed ? "PASSED" : "FAILED"}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Score Breakdown Panel */}
+            <ScoreBreakdown
+              timeTakenSeconds={finalResult?.time_taken_seconds ?? 0}
+              totalCommits={finalResult?.iterations ?? 0}
+              passed={finalResult?.passed ?? false}
+            />
+
+            {/* Stats */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="glass-card rounded-2xl p-4">
                 <div className="flex items-center gap-2">
@@ -655,9 +940,7 @@ export default function Dashboard() {
                   <h2 className="text-sm font-medium text-foreground">Fixes Applied</h2>
                   <p className="text-xs text-muted-foreground">What failed and how AI resolved each issue</p>
                 </div>
-                {fixes.map((fix, idx) => (
-                  <FixCard key={idx} fix={fix} />
-                ))}
+                <FixesTable fixes={fixes} />
               </div>
             )}
 

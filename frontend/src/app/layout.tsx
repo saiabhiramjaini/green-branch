@@ -13,6 +13,9 @@ export const metadata: Metadata = {
   title: "GreenBranch | Autonomous CI/CD Healing Agent",
   description:
     "Automatically detect, fix, and verify code issues to keep CI pipelines green.",
+  icons: {
+    icon: "/logo.png",
+  }
 };
 
 export default function RootLayout({

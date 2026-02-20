@@ -62,3 +62,10 @@ export function mapLanguage(lang: string | null): string {
 export function getBranchName(repoName: string) {
   return `${repoName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_AI_Fix`;
 }
+
+// Generate branch name in hackathon format: TEAM_NAME_LEADER_NAME_AI_Fix
+export function getTeamBranchName(teamName: string, leaderName: string): string {
+  const sanitize = (str: string) =>
+    str.toUpperCase().replace(/\s+/g, "_").replace(/[^A-Z0-9_]/g, "");
+  return `${sanitize(teamName)}_${sanitize(leaderName)}_AI_Fix`;
+}
