@@ -2,9 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { ArrowLeft, Shield, GitBranch } from "lucide-react";
 
 function GitHubIcon({ className }: { className?: string }) {
@@ -16,6 +18,18 @@ function GitHubIcon({ className }: { className?: string }) {
 }
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { status } = useSession();
+
+  // Redirect authenticated users away from sign-in page
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace("/dashboard");
+    }
+  }, [status, router]);
+
+  // Show nothing while checking session or redirecting
+  if (status === "loading" || status === "authenticated") return null;
   return (
     <div className="flex min-h-screen flex-col aurora-bg relative overflow-hidden">
       {/* Animated background orbs */}

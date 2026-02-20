@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -107,10 +108,21 @@ function getTeamBranchName(teamName: string, leaderName: string): string {
 
 export default function Home() {
   const router = useRouter();
+  const { status } = useSession();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
   const [teamName, setTeamName] = useState("");
   const [teamLeaderName, setTeamLeaderName] = useState("");
+
+  // Redirect authenticated users away from the landing page
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.replace("/dashboard");
+    }
+  }, [status, router]);
+
+  // Show nothing while checking session or redirecting
+  if (status === "loading" || status === "authenticated") return null;
 
   const handleRunAgent = () => {
     // Store values in localStorage so dashboard can read them

@@ -524,7 +524,7 @@ async def run_streaming(
         fixes_applied=fixes_applied,
         ci_timeline=ci_timeline,
         errors_remaining=errors,
-        branch_name=branch_name if commit_hash else None,
+        branch_name=branch_name,  # always carry the branch name — commit_hash may be None on partial failures but the branch still exists
         commit_hash=commit_hash,
         time_taken=time_taken,
         repo_url=repo_url,

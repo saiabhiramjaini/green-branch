@@ -303,16 +303,19 @@ export default function Dashboard() {
           case "complete":
             setFinalResult(data.result);
             setPhase("done");
-            // Show appropriate dialog if tests passed and there are fixes
+            // Use setTimeout to allow any in-flight `pr_created` event that
+            // arrived in the same WebSocket flush to be processed first.
             if (data.result?.passed && data.result?.branch_name) {
-              // Check if PR was already auto-created by backend
-              if (prCreatedRef.current) {
-                // PR already exists - show success dialog
-                setShowPrDialog(true);
-              } else {
-                // No PR yet - show confirmation dialog for user to create
-                setShowCreatePRDialog(true);
-              }
+              setTimeout(() => {
+                if (prCreatedRef.current) {
+                  // Backend already auto-created a PR — show the success dialog
+                  setShowPrDialog(true);
+                } else {
+                  // No auto PR (e.g. unauthenticated flow or it failed) —
+                  // let the user create the PR manually
+                  setShowCreatePRDialog(true);
+                }
+              }, 300);
             }
             break;
           case "error":
