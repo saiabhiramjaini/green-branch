@@ -41,7 +41,7 @@ export function getDefaultCommands(language: string): {
 } {
   switch (language) {
     case "nodejs":
-      return { install: "npm install", test: "npm test" };
+      return { install: "npm install", test: "npm run test" };
     case "python":
     default:
       return { install: "pip install -r requirements.txt", test: "pytest" };
