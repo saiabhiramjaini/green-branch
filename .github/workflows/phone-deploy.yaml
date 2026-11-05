@@ -1,0 +1,88 @@
+name: Deploy backends to phone
+
+# server-ai and server-ec2 run on an Android phone (Termux + proot-distro Debian + PM2),
+# reached through a Cloudflare Tunnel. See deploy/phone/README.md for the one-time setup
+# and the secrets this workflow needs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server-ai/**'
+      - 'server-ec2/**'
+      - 'deploy/phone/**'
+      - '.github/workflows/phone-deploy.yaml'
+  workflow_dispatch:      # "Run workflow" button in the Actions tab
+
+# Never run two deploys against the phone at once
+concurrency:
+  group: deploy-phone
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [server-ai, server-ec2]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+
+      # Nothing reaches the phone unless both backends install and import cleanly
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Compile and import the app
+        run: |
+          uv run python -m compileall -q src
+          uv run python -c "from src.app.app import init_app; init_app()"
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARED_VERSION: 2026.10.7
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install cloudflared
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/cloudflared" \
+            "https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          sudo install -m 755 "$RUNNER_TEMP/cloudflared" /usr/local/bin/cloudflared
+
+      - name: Configure SSH
+        env:
+          PHONE_SSH_HOST: ${{ secrets.PHONE_SSH_HOST }}
+          PHONE_SSH_USER: ${{ secrets.PHONE_SSH_USER }}
+          PHONE_SSH_KEY: ${{ secrets.PHONE_SSH_KEY }}
+          PHONE_SSH_KNOWN_HOSTS: ${{ secrets.PHONE_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$PHONE_SSH_KEY" > ~/.ssh/phone_key
+          chmod 600 ~/.ssh/phone_key
+          printf '%s\n' "$PHONE_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host phone
+            HostName $PHONE_SSH_HOST
+            User $PHONE_SSH_USER
+            IdentityFile ~/.ssh/phone_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+            ProxyCommand cloudflared access ssh --hostname %h --id "\$CF_ACCESS_CLIENT_ID" --secret "\$CF_ACCESS_CLIENT_SECRET"
+          EOF
+
+      # deploy.sh comes from this checkout, so it always matches the commit being deployed
+      - name: Deploy
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          # shellcheck disable=SC2029  # the SHA is meant to expand here, on the runner
+          ssh phone "proot-distro login debian -- bash -s -- $GITHUB_SHA" < deploy/phone/deploy.sh

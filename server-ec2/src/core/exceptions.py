@@ -58,3 +58,13 @@ class InvalidFilePathError(Exception):
 class GitPushError(Exception):
     """Raised when pushing a commit to the remote fails."""
     status_code = 502
+
+
+class ExecutorUnavailableError(Exception):
+    """Raised when the local executor is missing a tool it needs (bash, npm, python3)."""
+    status_code = 503
+
+
+class RepositoryNotAllowedError(Exception):
+    """Raised when a repo's owner is not in EC2_AGENT_ALLOWED_REPO_OWNERS."""
+    status_code = 403

@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter
 
 from src.app.handlers import handle_endpoint
@@ -28,8 +30,9 @@ async def apply_fix(request: ApplyFixRequest):
             "message": "Fix written. Tests not run.",
         }
 
-    # 2. Run tests with the fix applied
-    result = TestRunner().run_tests(
+    # 2. Run tests with the fix applied (blocking — in a worker thread)
+    result = await asyncio.to_thread(
+        TestRunner().run_tests,
         session_id=request.session_id,
         language=session["language"],
         install_command=request.install_command,
@@ -58,10 +61,11 @@ async def commit_fix(request: CommitFixRequest):
     git_service = GitService()
 
     # 1. Create/checkout the fix branch
-    git_service.create_branch(request.session_id, request.branch_name)
+    await asyncio.to_thread(git_service.create_branch, request.session_id, request.branch_name)
 
-    # 2. Commit and push (file should already be written by /fix)
-    commit_hash = git_service.commit_and_push(
+    # 2. Commit and push (file should already be written by /fix); pushing is network-bound
+    commit_hash = await asyncio.to_thread(
+        git_service.commit_and_push,
         session_id=request.session_id,
         file_path=request.file_path,
         commit_message=request.commit_message,

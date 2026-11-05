@@ -46,6 +46,10 @@ class ApiSettings(BaseSettings):
         default="",
         description="API key for authenticating with EC2 agent",
     )
+    ec2_agent_timeout: float = Field(
+        default=900.0,
+        description="Seconds to wait on the EC2 agent; must cover a dependency install plus a test run",
+    )
 
     # ── LLM (Groq) ──
     groq_api_key: str = Field(

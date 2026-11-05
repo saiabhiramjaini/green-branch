@@ -1,7 +1,10 @@
 """EC2 Agent configuration — Pydantic BaseSettings"""
 
+import os
+from typing import Annotated, Literal
+
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, NoDecode
 
 
 class ApiSettings(BaseSettings):
@@ -36,7 +39,26 @@ class ApiSettings(BaseSettings):
         description="Allowed CORS origins (the agent is called server-to-server, so none by default)",
     )
 
-    # ── Docker container names ──
+    # ── Execution ──
+    executor: Literal["docker", "local"] = Field(
+        default="docker",
+        description=(
+            "Where install/test commands run. 'docker': inside the long-running executor "
+            "containers (isolated). 'local': as plain processes on this machine, for hosts "
+            "without Docker such as an Android phone. Local mode requires allowed_repo_owners."
+        ),
+    )
+    allowed_repo_owners: Annotated[list[str], NoDecode] = Field(
+        default=[],
+        description=(
+            "GitHub users/orgs whose repositories may be cloned (comma-separated). "
+            "Empty = any owner, which is only accepted with the docker executor."
+        ),
+    )
+    install_timeout: int = Field(default=600, description="Seconds before a dependency install is stopped")
+    test_timeout: int = Field(default=300, description="Seconds before a test run is stopped")
+
+    # ── Docker executor ──
     python_container: str = Field(
         default="python-executor",
         description="Name of the long-running Python Docker container",
@@ -45,15 +67,22 @@ class ApiSettings(BaseSettings):
         default="node-executor",
         description="Name of the long-running Node.js Docker container",
     )
+    container_repos_path: str = Field(
+        default="/repos",
+        description="Path where repos are mounted inside the executor containers",
+    )
+
+    # ── Git ──
+    commit_author_name: str = Field(default="GreenBranch", description="Author name on fix commits")
+    commit_author_email: str = Field(
+        default="greenbranch@users.noreply.github.com",
+        description="Author email on fix commits",
+    )
 
     # ── Paths ──
     repos_base_path: str = Field(
         default="/home/ubuntu/repos",
-        description="Base path where cloned repos are stored on EC2 (Host side)",
-    )
-    container_repos_path: str = Field(
-        default="/repos",
-        description="Path where repos are mounted inside the executor containers",
+        description="Base path where cloned repos are stored on this machine",
     )
 
     # ── Redis ──
@@ -81,6 +110,19 @@ class ApiSettings(BaseSettings):
     def lowercase_log_level(cls, v: str) -> str:
         """Convert log level to lowercase (uvicorn requirement)."""
         return v.lower()
+
+    @field_validator("allowed_repo_owners", mode="before")
+    @classmethod
+    def split_owners(cls, v: str | list[str]) -> list[str]:
+        """Accept "a,b" from the environment; compare owners case-insensitively."""
+        if isinstance(v, str):
+            v = v.split(",")
+        return [owner.strip().lower() for owner in v if owner.strip()]
+
+    @field_validator("repos_base_path")
+    @classmethod
+    def expand_repos_path(cls, v: str) -> str:
+        return os.path.expanduser(v)
 
     model_config = {
         "env_prefix": "EC2_AGENT_",

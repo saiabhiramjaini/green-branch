@@ -2,19 +2,37 @@
 
 import logging
 import os
+import re
 import shutil
 
-from git import GitCommandError, Repo
+from git import Actor, GitCommandError, Repo
 
 from src.app.config import api_settings
 from src.core.exceptions import (
     GitPushError,
     InvalidFilePathError,
     RepositoryCloneError,
+    RepositoryNotAllowedError,
     RepositoryNotFoundError,
 )
 
 logger = logging.getLogger("ec2_agent")
+
+
+def ensure_repo_allowed(repo_url: str) -> None:
+    """Raise RepositoryNotAllowedError unless the repo's owner is in EC2_AGENT_ALLOWED_REPO_OWNERS.
+
+    An empty allowlist allows every owner (only permitted with the docker executor).
+    """
+    allowed = api_settings.allowed_repo_owners
+    if not allowed:
+        return
+    match = re.match(r"^https://github\.com/([^/]+)/", repo_url)
+    owner = match.group(1).lower() if match else None
+    if owner not in allowed:
+        raise RepositoryNotAllowedError(
+            f"This GreenBranch server only works on repositories owned by: {', '.join(allowed)}."
+        )
 
 
 def _redact(text: str, secret: str | None) -> str:
@@ -74,8 +92,10 @@ class GitService:
         """Clone a GitHub repo into {base_path}/{session_id}/.
 
         Clones *branch* if given, otherwise the repository's default branch.
-        Returns the path to the cloned repo. Raises RepositoryCloneError on failure.
+        Returns the path to the cloned repo. Raises RepositoryNotAllowedError if the
+        owner isn't allowed, RepositoryCloneError on failure.
         """
+        ensure_repo_allowed(repo_url)
         repo_path = self.get_repo_path(session_id)
 
         # Clean up if session dir already exists
@@ -172,8 +192,9 @@ class GitService:
         abs_path = self.resolve_file_path(session_id, file_path)
         repo.index.add([os.path.relpath(abs_path, os.path.realpath(repo_path))])
 
-        # Commit
-        commit = repo.index.commit(commit_message)
+        # Commit with a fixed identity, so it doesn't depend on the host's git config
+        author = Actor(api_settings.commit_author_name, api_settings.commit_author_email)
+        commit = repo.index.commit(commit_message, author=author, committer=author)
         logger.info(f"Committed: {commit.hexsha[:8]} — {commit_message}")
 
         # Push with a temporarily authenticated remote URL

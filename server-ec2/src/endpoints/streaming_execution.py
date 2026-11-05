@@ -2,17 +2,16 @@
 
 import json
 import logging
-import os
 import time
-from typing import Generator
+from collections.abc import Callable, Generator
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from src.app.config import api_settings
 from src.app.handlers import handle_endpoint
 from src.models import ExecuteTestsRequest
-from src.services.docker_service import DockerService
+from src.services.execution_service import ExecutionService
+from src.services.executors import CommandStream, get_executor
 from src.services.git_service import GitService
 from src.services.session_store import session_store
 from src.utils.parsers import count_passed, parse_test_output
@@ -28,21 +27,30 @@ def _sse_event(data: dict) -> str:
 
 
 def _relay(
-    gen: Generator[str, None, tuple[int, str]],
+    make_stream: Callable[[], CommandStream],
     phase: str,
-    lines: list[str],
 ) -> Generator[str, None, tuple[int, str]]:
-    """Forward each output line of *gen* as an SSE log event.
+    """Run a command stream, forwarding each output line as an SSE log event.
 
-    Returns the wrapped generator's ``(exit_code, full_output)``.
+    Returns its ``(exit_code, full_output)``. If the command can't run, the error
+    is sent as a log line and the phase fails with exit code -1, so the client
+    still receives a result.
     """
+    lines: list[str] = []
     try:
+        stream = make_stream()
         while True:
-            line = next(gen)
+            line = next(stream)
             lines.append(line)
             yield _sse_event({"type": "log", "phase": phase, "line": line})
     except StopIteration as stop:
-        return stop.value or (0, "\n".join(lines))
+        return stop.value
+    except Exception as e:
+        logger.error(f"{phase} failed: {e}")
+        message = f"[error] {phase} could not run: {e}"
+        lines.append(message)
+        yield _sse_event({"type": "log", "phase": phase, "line": message})
+        return -1, "\n".join(lines)
 
 
 def _stream_execution(
@@ -54,59 +62,20 @@ def _stream_execution(
     """Generator that streams test execution output as SSE events."""
 
     start = time.time()
-    docker_service = DockerService()
-    container_repo_path = os.path.join(api_settings.container_repos_path, session_id)
+    service = ExecutionService()
 
     # ── Install ──────────────────────────────────────────────────────────
     yield _sse_event({"type": "phase", "phase": "install"})
-
-    install_lines: list[str] = []
-    try:
-        install_exit, _ = yield from _relay(
-            docker_service.install_dependencies_streaming(
-                language=language,
-                repo_path=container_repo_path,
-                custom_command=install_command,
-            ),
-            "install",
-            install_lines,
-        )
-    except Exception as e:
-        logger.warning(f"Install streaming failed, falling back: {e}")
-        install_exit, install_output = docker_service.install_dependencies(
-            language=language,
-            repo_path=container_repo_path,
-            custom_command=install_command,
-        )
-        for line in install_output.strip().split("\n"):
-            yield _sse_event({"type": "log", "phase": "install", "line": line})
-
+    install_exit, _ = yield from _relay(
+        lambda: service.install_streaming(session_id, language, install_command), "install"
+    )
     yield _sse_event({"type": "phase_done", "phase": "install", "exit_code": install_exit})
 
     # ── Test ─────────────────────────────────────────────────────────────
     yield _sse_event({"type": "phase", "phase": "test"})
-
-    test_lines: list[str] = []
-    try:
-        test_exit, full_test_output = yield from _relay(
-            docker_service.run_tests_streaming(
-                language=language,
-                repo_path=container_repo_path,
-                custom_command=test_command,
-            ),
-            "test",
-            test_lines,
-        )
-    except Exception as e:
-        logger.warning(f"Test streaming failed, falling back: {e}")
-        test_exit, full_test_output = docker_service.run_tests(
-            language=language,
-            repo_path=container_repo_path,
-            custom_command=test_command,
-        )
-        for line in full_test_output.strip().split("\n"):
-            yield _sse_event({"type": "log", "phase": "test", "line": line})
-
+    test_exit, full_test_output = yield from _relay(
+        lambda: service.test_streaming(session_id, language, test_command), "test"
+    )
     yield _sse_event({"type": "phase_done", "phase": "test", "exit_code": test_exit})
 
     # Parse errors
@@ -147,6 +116,7 @@ async def execute_tests_streaming(request: ExecuteTestsRequest):
     # Validate before streaming starts so errors become proper HTTP responses
     session = session_store.get(request.session_id)
     GitService().require_repo_path(request.session_id)
+    get_executor().check_language(session["language"])  # e.g. container down / npm missing → 503
     session_store.update(request.session_id, {"status": "running"})
 
     return StreamingResponse(

@@ -52,7 +52,7 @@ class EC2Client:
         return httpx.AsyncClient(
             base_url=self.base_url,
             headers=self.headers,
-            timeout=300.0,  # Long timeout — Docker test runs can take time
+            timeout=api_settings.ec2_agent_timeout,  # test runs can take minutes
         )
 
     async def ping(self) -> bool:
@@ -161,7 +161,7 @@ class EC2Client:
             async with httpx.AsyncClient(
                 base_url=self.base_url,
                 headers=self.headers,
-                timeout=300.0,
+                timeout=api_settings.ec2_agent_timeout,
             ) as client:
                 async with client.stream("POST", "/api/v1/execute/stream", json=payload) as response:
                     if not response.is_success:

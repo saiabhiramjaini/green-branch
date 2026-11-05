@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter
 
 from src.app.handlers import handle_endpoint
@@ -18,9 +20,10 @@ async def execute_tests(request: ExecuteTestsRequest):
     # Update session status
     session_store.update(request.session_id, {"status": "running"})
 
-    # Run tests via TestRunner
+    # Run tests via TestRunner (blocking — in a worker thread so other requests keep being served)
     test_runner = TestRunner()
-    result = test_runner.run_tests(
+    result = await asyncio.to_thread(
+        test_runner.run_tests,
         session_id=request.session_id,
         language=session["language"],
         install_command=request.install_command,

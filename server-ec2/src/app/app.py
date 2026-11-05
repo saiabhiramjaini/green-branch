@@ -24,11 +24,21 @@ async def lifespan(app: FastAPI):
     print(f"{api_settings.app_name} v{api_settings.version} starting...")
     print(f"Repos path: {api_settings.repos_base_path}")
 
-    # Verify Docker connectivity on startup
-    from src.core.docker_manager import DockerManager
-    docker = DockerManager()
-    docker.ping()
-    print("Docker daemon connected")
+    # Local mode has no sandbox: only run code from repos whose owners were explicitly allowed
+    if api_settings.executor == "local" and not api_settings.allowed_repo_owners:
+        if not api_settings.debug:
+            raise RuntimeError(
+                "EC2_AGENT_EXECUTOR=local requires EC2_AGENT_ALLOWED_REPO_OWNERS "
+                "(comma-separated GitHub users/orgs whose repos may be cloned)"
+            )
+        print("WARNING: local executor with no EC2_AGENT_ALLOWED_REPO_OWNERS — any repo can run code here (debug mode)")
+
+    # Verify the executor can run commands (Docker reachable / bash available)
+    from src.services.executors import get_executor
+    details = get_executor().check()
+    print(f"Executor ready: {details}")
+    if api_settings.allowed_repo_owners:
+        print(f"Allowed repo owners: {', '.join(api_settings.allowed_repo_owners)}")
 
     # Verify Redis connectivity on startup
     from src.services.session_store import session_store

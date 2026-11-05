@@ -1,5 +1,6 @@
 """Session endpoints — Redis-backed CRUD + DELETE with repo cleanup."""
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -24,7 +25,9 @@ async def create_session(request: CreateSessionRequest):
     session_id = str(uuid.uuid4())
 
     git_service = GitService()
-    repo_path = git_service.clone_repo(
+    # Cloning can take a while; keep the event loop free for other requests
+    repo_path = await asyncio.to_thread(
+        git_service.clone_repo,
         request.repo_url,
         session_id,
         branch=request.branch,
@@ -86,7 +89,7 @@ async def delete_session(session_id: str):
 
     # Clean up cloned repo from filesystem
     git_service = GitService()
-    git_service.cleanup_session(session_id)
+    await asyncio.to_thread(git_service.cleanup_session, session_id)
 
     # Delete from Redis (session + indexes)
     session_store.delete(session_id)

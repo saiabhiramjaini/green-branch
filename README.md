@@ -17,8 +17,7 @@
 - [Running the Application](#running-the-application)
 - [API Endpoints](#api-endpoints)
 - [Workflow & Pipeline](#workflow--pipeline)
-- [Development Guide](#development-guide)
-- [Troubleshooting](#troubleshooting)
+- [Deployment (Android phone)](#deployment-android-phone)
 
 ---
 
@@ -73,9 +72,10 @@ GreenBranch is a **microservices-based** system with three main components:
            │                              │
     ┌──────▼──────────┐           ┌──────────▼────────────┐
     │   SERVER-AI     │           │   SERVER-EC2         │
-    │     (EC2)       │           │      (EC2)           │
+    │   (FastAPI)     │           │    (FastAPI)         │
     ├─────────────────┤           ├──────────────────────┤
-    │ • LangGraph     │           │ • Docker Manager     │
+    │ • LangGraph     │           │ • Executor (local    │
+    │                 │           │   or Docker)         │
     │ • Groq LLM      │           │ • Test Execution     │
     │ • Fix Logic     │           │ • Git Operations     │
     │ • State Mgmt    │           │ • Redis Sessions     │
@@ -88,7 +88,7 @@ GreenBranch is a **microservices-based** system with three main components:
               │  External Services  │
               ├─────────────────────┤
               │ • GitHub API        │
-              │ • Docker Hub        │
+              │ • Cloudflare Tunnel │
               │ • Groq API          │
               │ • Redis             │
               └─────────────────────┘
@@ -103,15 +103,16 @@ GreenBranch is a **microservices-based** system with three main components:
 - GitHub OAuth authentication
 - WebSocket connection for streaming logs
 
-**Server-AI (FastAPI - EC2)**
+**Server-AI (FastAPI)**
 - Orchestrates the LangGraph healing pipeline
 - Analyzes test failures using LLM
 - Generates code fixes
 - Manages PR creation
 - Handles agent run logic
 
-**Server-EC2 (FastAPI - EC2)**
-- Executes Docker containers for tests
+**Server-EC2 (FastAPI)**
+- Runs install/test commands — directly on the host (`local` executor, used on the phone)
+  or inside Docker containers (`docker` executor)
 - Manages Git repository cloning and operations
 - Runs test suites
 - Handles file operations
@@ -181,10 +182,9 @@ green-branch/
 │   │   └── core/
 │   │       └── exceptions.py         # Custom exceptions
 │   ├── pyproject.toml               # Project config & dependencies
-│   ├── settings.toml                # Environment settings
 │   └── Dockerfile                   # Docker image config
 │
-├── server-ec2/                       # Execution & Docker Management
+├── server-ec2/                       # Repo cloning & test execution
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── app.py               # FastAPI app initialization
@@ -199,7 +199,8 @@ green-branch/
 │   │   │   ├── files.py             # File operation endpoint
 │   │   │   └── health.py            # Health check endpoint
 │   │   ├── services/
-│   │   │   ├── docker_service.py    # Docker operations
+│   │   │   ├── execution_service.py # Install/test commands
+│   │   │   ├── executors.py         # Where commands run: local or Docker
 │   │   │   ├── git_service.py       # Git operations
 │   │   │   ├── test_runner.py       # Test execution logic
 │   │   │   └── session_store.py     # Redis session storage
@@ -208,15 +209,21 @@ green-branch/
 │   │   │   ├── fix.py               # Fix models
 │   │   │   └── session.py           # Session models
 │   │   ├── core/
-│   │   │   ├── docker_manager.py    # Docker management
+│   │   │   ├── docker_manager.py    # Docker client (docker executor)
 │   │   │   └── exceptions.py        # Custom exceptions
 │   │   └── utils/
 │   │       └── parsers.py           # Utility parsers
 │   ├── pyproject.toml              # Project config & dependencies
-│   ├── settings.toml               # Environment settings
 │   └── Dockerfile                  # Docker image config
 │
-└── .github/                         # GitHub workflows & config
+├── deploy/phone/                    # Running the backends on an Android phone
+│   ├── README.md                    # Step-by-step guide
+│   ├── setup.sh / setup-debian.sh   # One-time setup (Termux, then Debian)
+│   ├── start.sh                     # Start everything (also the boot script)
+│   ├── ecosystem.config.js          # PM2 processes
+│   └── deploy.sh                    # Deploy a commit, roll back if unhealthy
+│
+└── .github/workflows/               # phone-deploy.yaml, vercel-deploy.yaml
 ```
 
 ---
@@ -244,14 +251,17 @@ green-branch/
 ### Backend - Server-EC2
 - **Framework:** FastAPI 0.129.0
 - **Language:** Python 3.11+
-- **Container Management:** Docker
+- **Execution:** local subprocesses, or Docker containers
 - **Caching:** Redis 5.0
 - **Version Control:** GitPython
 - **Server:** Uvicorn
 - **Config:** Pydantic Settings
 
 ### Infrastructure
-- **Containerization:** Docker
+- **Frontend hosting:** Vercel
+- **Backend hosting:** an Android phone — Termux, proot-distro Debian, PM2
+- **Public access:** Cloudflare Tunnel (HTTPS, WebSocket, and SSH for deploys)
+- **CI/CD:** GitHub Actions
 - **Session Storage:** Redis
 - **CORS:** FastAPI CORS Middleware
 - **VCS:** Git
@@ -263,7 +273,7 @@ green-branch/
 ### System Requirements
 
 - **OS:** Windows, macOS, or Linux
-- **Docker:** v7.0+ (for running containers)
+- **Docker:** only for Server-EC2's `docker` executor
 - **Node.js:** v18+ (for frontend development)
 - **Python:** v3.11+ (for backend services)
 - **Git:** v2.30+ (for version control)
@@ -343,26 +353,37 @@ uv run python -m src.app.api
 
 ### Step 4: Server-EC2 Setup
 
-Server-EC2 runs tests inside two long-running executor containers. Both must mount
-`EC2_AGENT_REPOS_BASE_PATH` at `/repos`:
+Server-EC2 runs each repo's install and test commands with one of two executors:
 
-```bash
-mkdir -p /tmp/repos
-docker run -d --name python-executor -v /tmp/repos:/repos python:3.11 sleep infinity
-docker run -d --name node-executor   -v /tmp/repos:/repos node:20     sleep infinity
-```
+- **`local`** — plain processes on this machine, using its own `node`/`npm`/`python3`.
+  There is no sandbox, so it only clones repos whose owner is listed in
+  `EC2_AGENT_ALLOWED_REPO_OWNERS`. Simplest for development; it's what the phone uses.
+- **`docker`** (default) — inside two long-running executor containers, isolated from
+  the host. Use it if GreenBranch should fix repos from anyone.
 
 ```bash
 cd server-ec2
 
+# local executor
 cat > .env << EOF
 EC2_AGENT_API_KEY=dev-ec2-key
 EC2_AGENT_REDIS_URL=redis://localhost:6379/0
 EC2_AGENT_REPOS_BASE_PATH=/tmp/repos
+EC2_AGENT_EXECUTOR=local
+EC2_AGENT_ALLOWED_REPO_OWNERS=your-github-username
 EOF
 
 uv sync
 uv run python -m src.app.api
+```
+
+For the `docker` executor, leave out the last two lines and start the executor
+containers; both must mount `EC2_AGENT_REPOS_BASE_PATH` at `/repos`:
+
+```bash
+mkdir -p /tmp/repos
+docker run -d --name python-executor -v /tmp/repos:/repos python:3.11 sleep infinity
+docker run -d --name node-executor   -v /tmp/repos:/repos node:22     sleep infinity
 ```
 
 ### Step 5: Redis Setup
@@ -405,6 +426,7 @@ token server-side. The browser only opens the WebSocket, using a single-use `run
 | `SERVER_API_KEY` | — | Required key for `/agent/run`, `/agent/runs`, `/pr` |
 | `SERVER_EC2_AGENT_URL` | `http://localhost:8001` | Server-EC2 base URL |
 | `SERVER_EC2_AGENT_API_KEY` | — | Must equal Server-EC2's `EC2_AGENT_API_KEY` |
+| `SERVER_EC2_AGENT_TIMEOUT` | `900` | Seconds to wait on Server-EC2 (covers an install plus a test run) |
 | `SERVER_GROQ_API_KEY` | — | Groq API key |
 | `SERVER_LLM_MODEL` | `llama-3.3-70b-versatile` | Groq model |
 | `SERVER_MAX_ITERATIONS` | `5` | Test runs per pipeline |
@@ -419,11 +441,15 @@ Run tickets are held in memory, so keep `SERVER_UVICORN_WORKERS=1`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EC2_AGENT_API_KEY` | — | Required key for every endpoint except `/health` |
+| `EC2_AGENT_EXECUTOR` | `docker` | `local` (plain processes on this machine) or `docker` (executor containers) |
+| `EC2_AGENT_ALLOWED_REPO_OWNERS` | — | Comma-separated GitHub users/orgs whose repos may be cloned. Required with `local`; empty = anyone (docker only) |
+| `EC2_AGENT_INSTALL_TIMEOUT` / `EC2_AGENT_TEST_TIMEOUT` | `600` / `300` | Seconds before an install or test run is stopped |
 | `EC2_AGENT_REDIS_URL` | `redis://localhost:6379/0` | Session store |
 | `EC2_AGENT_SESSION_TTL` | `7200` | Session lifetime (seconds) |
 | `EC2_AGENT_REPOS_BASE_PATH` | `/home/ubuntu/repos` | Where repos are cloned (host side) |
-| `EC2_AGENT_CONTAINER_REPOS_PATH` | `/repos` | Same directory inside the executor containers |
-| `EC2_AGENT_PYTHON_CONTAINER` / `EC2_AGENT_NODE_CONTAINER` | `python-executor` / `node-executor` | Executor container names |
+| `EC2_AGENT_COMMIT_AUTHOR_NAME` / `EC2_AGENT_COMMIT_AUTHOR_EMAIL` | `GreenBranch` / `greenbranch@users.noreply.github.com` | Author of fix commits |
+| `EC2_AGENT_CONTAINER_REPOS_PATH` | `/repos` | Docker executor: the repos directory inside the containers |
+| `EC2_AGENT_PYTHON_CONTAINER` / `EC2_AGENT_NODE_CONTAINER` | `python-executor` / `node-executor` | Docker executor: container names |
 | `EC2_AGENT_CLEANUP_INTERVAL` | `600` | Seconds between sweeps that delete repos of expired sessions |
 | `EC2_AGENT_DEBUG` | `false` | Allows running without `EC2_AGENT_API_KEY` |
 
@@ -577,7 +603,7 @@ All endpoints except `/health` require the API key.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/v1/health`, `/api/v1/health/docker` | GET | Health checks |
+| `/api/v1/health`, `/api/v1/health/executor` | GET | Health checks (the second checks Docker or the local tools) |
 | `/api/v1/sessions` | POST | Clone a GitHub repo (default branch unless `branch` given) |
 | `/api/v1/sessions[/{id}]` | GET / DELETE | Inspect or delete sessions (DELETE removes the clone) |
 | `/api/v1/execute` | POST | Install + run tests |
@@ -602,7 +628,7 @@ All endpoints except `/health` require the API key.
 │  Step 1: Repository Cloning & Setup                         │
 │  ├─ Clone repository from GitHub                            │
 │  ├─ Checkout specified branch                               │
-│  └─ Create isolated environment (Docker)                    │
+│  └─ Prepare the executor (local process or Docker)          │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
@@ -707,3 +733,26 @@ Graph Nodes:
                                        │
                                        └──> Back to execute_tests
 ```
+
+---
+
+## 📱 Deployment (Android phone)
+
+The backends run on an old Android phone instead of a cloud server; the frontend stays on
+Vercel. Everything runs under PM2 inside Debian (proot-distro) in Termux, and a Cloudflare
+Tunnel gives it public HTTPS URLs without opening ports on the router:
+
+```
+Vercel (frontend) ──HTTPS / WSS──▶ Cloudflare Tunnel ──▶ phone
+                                                         ├─ server-ai   :8000
+                                                         ├─ server-ec2  :8001  (local executor)
+                                                         ├─ redis       :6379
+                                                         └─ sshd        :8022  (deploys only)
+```
+
+Pushes to `main` that touch the backends run `.github/workflows/phone-deploy.yaml`, which
+checks both apps, then deploys over SSH through the tunnel and rolls back automatically if
+the new version isn't healthy.
+
+The full setup — phone, Cloudflare, GitHub secrets, Vercel — is in
+[`deploy/phone/README.md`](deploy/phone/README.md).
