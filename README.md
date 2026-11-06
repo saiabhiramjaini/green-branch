@@ -71,10 +71,10 @@ GreenBranch is a **microservices-based** system with three main components:
            │ HTTP/WebSocket               │ HTTP
            │                              │
     ┌──────▼──────────┐           ┌──────────▼────────────┐
-    │   SERVER-AI     │           │   SERVER-EC2         │
+    │   SERVER-AI     │           │   SERVER-RUNNER      │
     │   (FastAPI)     │           │    (FastAPI)         │
     ├─────────────────┤           ├──────────────────────┤
-    │ • LangGraph     │           │ • Executor (local    │
+    │ • Heal loop     │           │ • Executor (local    │
     │                 │           │   or Docker)         │
     │ • Groq LLM      │           │ • Test Execution     │
     │ • Fix Logic     │           │ • Git Operations     │
@@ -104,13 +104,13 @@ GreenBranch is a **microservices-based** system with three main components:
 - WebSocket connection for streaming logs
 
 **Server-AI (FastAPI)**
-- Orchestrates the LangGraph healing pipeline
+- Runs the healing loop: test → fix → verify, reverting fixes that don't work
 - Analyzes test failures using LLM
 - Generates code fixes
 - Manages PR creation
 - Handles agent run logic
 
-**Server-EC2 (FastAPI)**
+**Server-Runner (FastAPI)**
 - Runs install/test commands — directly on the host (`local` executor, used on the phone)
   or inside Docker containers (`docker` executor)
 - Manages Git repository cloning and operations
@@ -162,29 +162,21 @@ green-branch/
 │   │   │   ├── agent_ws.py           # WebSocket endpoint
 │   │   │   ├── pr.py                 # PR creation endpoint
 │   │   │   └── health.py             # Health check endpoint
-│   │   ├── graph/
-│   │   │   └── healing_graph.py      # LangGraph pipeline definition
-│   │   ├── nodes/
-│   │   │   ├── execute_tests.py      # Test execution node
-│   │   │   ├── select_error.py       # Error selection node
-│   │   │   └── fix_code.py           # Code fixing node
 │   │   ├── llm/
 │   │   │   └── llm_client.py         # Groq LLM client
 │   │   ├── runner/
-│   │   │   ├── agent_runner.py       # Main agent orchestration
-│   │   │   └── streaming_runner.py   # Streaming runner
+│   │   │   ├── streaming_runner.py   # The pipeline: clone → heal loop → commit → PR
+│   │   │   └── fix_engine.py         # One fix: find the code, ask the LLM for edits, apply
 │   │   ├── services/
-│   │   │   └── ec2_client.py         # EC2 service client
+│   │   │   └── runner_client.py      # server-runner client
 │   │   ├── models/
 │   │   │   └── agent.py              # Data models
-│   │   ├── state/
-│   │   │   └── graph_state.py        # LangGraph state definition
 │   │   └── core/
 │   │       └── exceptions.py         # Custom exceptions
 │   ├── pyproject.toml               # Project config & dependencies
 │   └── Dockerfile                   # Docker image config
 │
-├── server-ec2/                       # Repo cloning & test execution
+├── server-runner/                     # Repo cloning & test execution
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── app.py               # FastAPI app initialization
@@ -242,13 +234,12 @@ green-branch/
 ### Backend - Server-AI
 - **Framework:** FastAPI 0.129.0
 - **Language:** Python 3.11+
-- **Orchestration:** LangGraph 1.0.8
 - **LLM Provider:** Groq API
 - **Server:** Uvicorn
 - **Config:** Pydantic Settings
 - **HTTP Client:** httpx
 
-### Backend - Server-EC2
+### Backend - Server-Runner
 - **Framework:** FastAPI 0.129.0
 - **Language:** Python 3.11+
 - **Execution:** local subprocesses, or Docker containers
@@ -273,7 +264,7 @@ green-branch/
 ### System Requirements
 
 - **OS:** Windows, macOS, or Linux
-- **Docker:** only for Server-EC2's `docker` executor
+- **Docker:** only for Server-Runner's `docker` executor
 - **Node.js:** v18+ (for frontend development)
 - **Python:** v3.11+ (for backend services)
 - **Git:** v2.30+ (for version control)
@@ -325,8 +316,8 @@ NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=$(openssl rand -base64 32)
 GITHUB_ID=your_github_oauth_client_id
 GITHUB_SECRET=your_github_oauth_client_secret
-EC2_AGENT_URL=http://localhost:8001
-EC2_AGENT_API_KEY=dev-ec2-key
+RUNNER_URL=http://localhost:8001
+RUNNER_API_KEY=dev-runner-key
 AGENT_SERVER_URL=http://localhost:8000
 AGENT_SERVER_API_KEY=dev-server-key
 NEXT_PUBLIC_SERVER_WS_URL=ws://localhost:8000/api/v1
@@ -342,8 +333,8 @@ cd server-ai
 
 cat > .env << EOF
 SERVER_API_KEY=dev-server-key
-SERVER_EC2_AGENT_URL=http://localhost:8001
-SERVER_EC2_AGENT_API_KEY=dev-ec2-key
+SERVER_RUNNER_URL=http://localhost:8001
+SERVER_RUNNER_API_KEY=dev-runner-key
 SERVER_GROQ_API_KEY=your_groq_api_key
 EOF
 
@@ -351,26 +342,26 @@ uv sync
 uv run python -m src.app.api
 ```
 
-### Step 4: Server-EC2 Setup
+### Step 4: Server-Runner Setup
 
-Server-EC2 runs each repo's install and test commands with one of two executors:
+Server-Runner runs each repo's install and test commands with one of two executors:
 
 - **`local`** — plain processes on this machine, using its own `node`/`npm`/`python3`.
   There is no sandbox, so it only clones repos whose owner is listed in
-  `EC2_AGENT_ALLOWED_REPO_OWNERS`. Simplest for development; it's what the phone uses.
+  `RUNNER_ALLOWED_REPO_OWNERS`. Simplest for development; it's what the phone uses.
 - **`docker`** (default) — inside two long-running executor containers, isolated from
   the host. Use it if GreenBranch should fix repos from anyone.
 
 ```bash
-cd server-ec2
+cd server-runner
 
 # local executor
 cat > .env << EOF
-EC2_AGENT_API_KEY=dev-ec2-key
-EC2_AGENT_REDIS_URL=redis://localhost:6379/0
-EC2_AGENT_REPOS_BASE_PATH=/tmp/repos
-EC2_AGENT_EXECUTOR=local
-EC2_AGENT_ALLOWED_REPO_OWNERS=your-github-username
+RUNNER_API_KEY=dev-runner-key
+RUNNER_REDIS_URL=redis://localhost:6379/0
+RUNNER_REPOS_BASE_PATH=/tmp/repos
+RUNNER_EXECUTOR=local
+RUNNER_ALLOWED_REPO_OWNERS=your-github-username
 EOF
 
 uv sync
@@ -378,7 +369,7 @@ uv run python -m src.app.api
 ```
 
 For the `docker` executor, leave out the last two lines and start the executor
-containers; both must mount `EC2_AGENT_REPOS_BASE_PATH` at `/repos`:
+containers; both must mount `RUNNER_REPOS_BASE_PATH` at `/repos`:
 
 ```bash
 mkdir -p /tmp/repos
@@ -415,7 +406,7 @@ token server-side. The browser only opens the WebSocket, using a single-use `run
 |----------|-------------|
 | `NEXTAUTH_URL` / `NEXTAUTH_SECRET` | NextAuth config |
 | `GITHUB_ID` / `GITHUB_SECRET` | GitHub OAuth app (scope `repo workflow read:user`) |
-| `EC2_AGENT_URL` / `EC2_AGENT_API_KEY` | Server-EC2 base URL and API key (server-side only) |
+| `RUNNER_URL` / `RUNNER_API_KEY` | Server-Runner base URL and API key (server-side only) |
 | `AGENT_SERVER_URL` / `AGENT_SERVER_API_KEY` | Server-AI base URL and API key (server-side only) |
 | `NEXT_PUBLIC_SERVER_WS_URL` | Public WebSocket base, e.g. `wss://api.example.com/api/v1` |
 
@@ -424,9 +415,9 @@ token server-side. The browser only opens the WebSocket, using a single-use `run
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SERVER_API_KEY` | — | Required key for `/agent/run`, `/agent/runs`, `/pr` |
-| `SERVER_EC2_AGENT_URL` | `http://localhost:8001` | Server-EC2 base URL |
-| `SERVER_EC2_AGENT_API_KEY` | — | Must equal Server-EC2's `EC2_AGENT_API_KEY` |
-| `SERVER_EC2_AGENT_TIMEOUT` | `900` | Seconds to wait on Server-EC2 (covers an install plus a test run) |
+| `SERVER_RUNNER_URL` | `http://localhost:8001` | Server-Runner base URL |
+| `SERVER_RUNNER_API_KEY` | — | Must equal Server-Runner's `RUNNER_API_KEY` |
+| `SERVER_RUNNER_TIMEOUT` | `900` | Seconds to wait on Server-Runner (covers an install plus a test run) |
 | `SERVER_GROQ_API_KEY` | — | Groq API key |
 | `SERVER_LLM_MODEL` | `llama-3.3-70b-versatile` | Groq model |
 | `SERVER_MAX_ITERATIONS` | `5` | Test runs per pipeline |
@@ -436,22 +427,22 @@ token server-side. The browser only opens the WebSocket, using a single-use `run
 
 Run tickets are held in memory, so keep `SERVER_UVICORN_WORKERS=1`.
 
-### Server-EC2 (`server-ec2/.env`, prefix `EC2_AGENT_`)
+### Server-Runner (`server-runner/.env`, prefix `RUNNER_`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EC2_AGENT_API_KEY` | — | Required key for every endpoint except `/health` |
-| `EC2_AGENT_EXECUTOR` | `docker` | `local` (plain processes on this machine) or `docker` (executor containers) |
-| `EC2_AGENT_ALLOWED_REPO_OWNERS` | — | Comma-separated GitHub users/orgs whose repos may be cloned. Required with `local`; empty = anyone (docker only) |
-| `EC2_AGENT_INSTALL_TIMEOUT` / `EC2_AGENT_TEST_TIMEOUT` | `600` / `300` | Seconds before an install or test run is stopped |
-| `EC2_AGENT_REDIS_URL` | `redis://localhost:6379/0` | Session store |
-| `EC2_AGENT_SESSION_TTL` | `7200` | Session lifetime (seconds) |
-| `EC2_AGENT_REPOS_BASE_PATH` | `/home/ubuntu/repos` | Where repos are cloned (host side) |
-| `EC2_AGENT_COMMIT_AUTHOR_NAME` / `EC2_AGENT_COMMIT_AUTHOR_EMAIL` | `GreenBranch` / `greenbranch@users.noreply.github.com` | Author of fix commits |
-| `EC2_AGENT_CONTAINER_REPOS_PATH` | `/repos` | Docker executor: the repos directory inside the containers |
-| `EC2_AGENT_PYTHON_CONTAINER` / `EC2_AGENT_NODE_CONTAINER` | `python-executor` / `node-executor` | Docker executor: container names |
-| `EC2_AGENT_CLEANUP_INTERVAL` | `600` | Seconds between sweeps that delete repos of expired sessions |
-| `EC2_AGENT_DEBUG` | `false` | Allows running without `EC2_AGENT_API_KEY` |
+| `RUNNER_API_KEY` | — | Required key for every endpoint except `/health` |
+| `RUNNER_EXECUTOR` | `docker` | `local` (plain processes on this machine) or `docker` (executor containers) |
+| `RUNNER_ALLOWED_REPO_OWNERS` | — | Comma-separated GitHub users/orgs whose repos may be cloned. Required with `local`; empty = anyone (docker only) |
+| `RUNNER_INSTALL_TIMEOUT` / `RUNNER_TEST_TIMEOUT` | `600` / `300` | Seconds before an install or test run is stopped |
+| `RUNNER_REDIS_URL` | `redis://localhost:6379/0` | Session store |
+| `RUNNER_SESSION_TTL` | `7200` | Session lifetime (seconds) |
+| `RUNNER_REPOS_BASE_PATH` | `/home/ubuntu/repos` | Where repos are cloned (host side) |
+| `RUNNER_COMMIT_AUTHOR_NAME` / `RUNNER_COMMIT_AUTHOR_EMAIL` | `GreenBranch` / `greenbranch@users.noreply.github.com` | Author of fix commits |
+| `RUNNER_CONTAINER_REPOS_PATH` | `/repos` | Docker executor: the repos directory inside the containers |
+| `RUNNER_PYTHON_CONTAINER` / `RUNNER_NODE_CONTAINER` | `python-executor` / `node-executor` | Docker executor: container names |
+| `RUNNER_CLEANUP_INTERVAL` | `600` | Seconds between sweeps that delete repos of expired sessions |
+| `RUNNER_DEBUG` | `false` | Allows running without `RUNNER_API_KEY` |
 
 ---
 
@@ -473,9 +464,9 @@ uv run python -m src.app.api
 # API docs: http://localhost:8000/docs
 ```
 
-#### Terminal 3: Server-EC2
+#### Terminal 3: Server-Runner
 ```bash
-cd server-ec2
+cd server-runner
 uv run python -m src.app.api
 # API docs: http://localhost:8001/docs
 ```
@@ -500,14 +491,14 @@ services:
     volumes:
       - redis_data:/data
 
-  server-ec2:
-    build: ./server-ec2
+  server-runner:
+    build: ./server-runner
     ports:
       - "8001:8001"
     environment:
-      - EC2_AGENT_API_KEY=${EC2_AGENT_API_KEY}
-      - EC2_AGENT_REDIS_URL=redis://redis:6379/0
-      - EC2_AGENT_REPOS_BASE_PATH=/home/ubuntu/repos
+      - RUNNER_API_KEY=${RUNNER_API_KEY}
+      - RUNNER_REDIS_URL=redis://redis:6379/0
+      - RUNNER_REPOS_BASE_PATH=/home/ubuntu/repos
     depends_on:
       - redis
     volumes:
@@ -520,19 +511,19 @@ services:
       - "8000:8000"
     environment:
       - SERVER_API_KEY=${SERVER_API_KEY}
-      - SERVER_EC2_AGENT_URL=http://server-ec2:8001
-      - SERVER_EC2_AGENT_API_KEY=${EC2_AGENT_API_KEY}
+      - SERVER_RUNNER_URL=http://server-runner:8001
+      - SERVER_RUNNER_API_KEY=${RUNNER_API_KEY}
       - SERVER_GROQ_API_KEY=${GROQ_API_KEY}
     depends_on:
-      - server-ec2
+      - server-runner
 
   frontend:
     build: ./frontend
     ports:
       - "3000:3000"
     environment:
-      - EC2_AGENT_URL=http://server-ec2:8001
-      - EC2_AGENT_API_KEY=${EC2_AGENT_API_KEY}
+      - RUNNER_URL=http://server-runner:8001
+      - RUNNER_API_KEY=${RUNNER_API_KEY}
       - AGENT_SERVER_URL=http://server-ai:8000
       - AGENT_SERVER_API_KEY=${SERVER_API_KEY}
       - NEXT_PUBLIC_SERVER_WS_URL=ws://localhost:8000/api/v1
@@ -542,7 +533,7 @@ services:
       - GITHUB_SECRET=${GITHUB_SECRET}
     depends_on:
       - server-ai
-      - server-ec2
+      - server-runner
 
 volumes:
   redis_data:
@@ -563,7 +554,7 @@ curl http://localhost:3000
 # Check Server-AI Health
 curl http://localhost:8000/api/v1/health
 
-# Check Server-EC2 Health
+# Check Server-Runner Health
 curl http://localhost:8001/api/v1/health
 
 # Check Redis
@@ -583,7 +574,7 @@ redis-cli ping  # Should return PONG
 | `/dashboard` | GET | Main dashboard |
 | `/api/auth/*` | GET/POST | NextAuth routes |
 | `/api/github/repos` | GET | List the user's GitHub repositories |
-| `/api/sessions` | POST | Clone a repo (proxies Server-EC2 `POST /sessions`) |
+| `/api/sessions` | POST | Clone a repo (proxies Server-Runner `POST /sessions`) |
 | `/api/runs` | POST | Register a run (proxies Server-AI `POST /agent/runs`), returns `run_id` |
 | `/api/pr` | POST | Open a pull request as the signed-in user |
 
@@ -594,10 +585,10 @@ redis-cli ping  # Should return PONG
 | `/api/v1/health` | GET | — | Health check |
 | `/api/v1/agent/runs` | POST | API key | Register a streaming run, returns a single-use `run_id` |
 | `/api/v1/agent/ws?run_id=…` | WebSocket | `run_id` | Real-time pipeline stream |
-| `/api/v1/agent/run` | POST | API key | Run the LangGraph pipeline synchronously and return the full report |
+| `/api/v1/agent/run` | POST | API key | Run the same pipeline without streaming and return the full report (for scripts) |
 | `/api/v1/pr` | POST | API key | Create a pull request |
 
-### Server-EC2 Endpoints
+### Server-Runner Endpoints
 
 All endpoints except `/health` require the API key.
 
@@ -705,34 +696,21 @@ All endpoints except `/health` require the API key.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### LangGraph State Machine
+### How a fix is made
 
-The `server-ai` service uses LangGraph to manage the healing pipeline state:
+`server-ai/src/runner/fix_engine.py` handles one failing test at a time:
 
-```
-Graph Nodes:
-┌──────────────────┐
-│ execute_tests    │  Runs the test suite and captures results
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ select_error     │  Identifies the current failure
-└────────┬─────────┘
-         │
-         ├─ Tests Passed? ──────────────> END
-         │
-         ├─ Max Iterations? ────────────> END
-         │
-         └─ Fix Needed? ──────────────┐
-                                      │
-                                      ▼
-                              ┌──────────────────┐
-                              │ fix_code         │
-                              └────────┬─────────┘
-                                       │
-                                       └──> Back to execute_tests
-```
+1. **Find the code.** If the failure is in a test file, follow the test's imports (JS/TS
+   relative imports, Python `from x import y`) and its name (`test_calc.py` → `calc.py`)
+   to the implementation it exercises.
+2. **Ask for edits, not files.** The LLM sees the error, the test output and the files, and
+   answers with small `SEARCH/REPLACE` blocks. Only changed lines come back, so long files
+   can be fixed. An answer cut off at the token limit is rejected.
+3. **Apply exactly.** Each block must match the file exactly once (trailing whitespace and
+   CRLF line endings are tolerated). Edits that don't apply, or that change a test's
+   assertions instead of the code, count as a failed attempt.
+4. **Verify.** The next test run decides: if the error is gone the fix is kept and explained,
+   otherwise the file is reverted. Each error gets at most two attempts.
 
 ---
 
@@ -745,7 +723,7 @@ Tunnel gives it public HTTPS URLs without opening ports on the router:
 ```
 Vercel (frontend) ──HTTPS / WSS──▶ Cloudflare Tunnel ──▶ phone
                                                          ├─ server-ai   :8000
-                                                         ├─ server-ec2  :8001  (local executor)
+                                                         ├─ server-runner  :8001  (local executor)
                                                          ├─ redis       :6379
                                                          └─ sshd        :8022  (deploys only)
 ```

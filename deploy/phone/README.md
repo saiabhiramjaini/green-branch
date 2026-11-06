@@ -1,12 +1,12 @@
 # Running the GreenBranch backends on an Android phone
 
-`server-ai` and `server-ec2` run on an old Android phone instead of a cloud server. The
+`server-ai` and `server-runner` run on an old Android phone instead of a cloud server. The
 frontend stays on Vercel.
 
 ```
 Vercel (frontend) ──HTTPS / WSS──▶ Cloudflare Tunnel ──▶ phone (Termux → Debian → PM2)
                                                          ├─ server-ai   127.0.0.1:8000
-                                                         ├─ server-ec2  127.0.0.1:8001
+                                                         ├─ server-runner  127.0.0.1:8001
                                                          ├─ redis       127.0.0.1:6379
                                                          └─ cloudflared
 GitHub Actions ──SSH through the tunnel──▶ sshd :8022 (Termux) → deploy.sh
@@ -14,9 +14,9 @@ GitHub Actions ──SSH through the tunnel──▶ sshd :8022 (Termux) → dep
 
 - **Debian inside Termux (proot-distro):** the Python backends and the repos under test
   install normal Linux ARM packages there. Termux's own environment can't use most of them.
-- **`server-ec2` uses the `local` executor:** the phone has no Docker, so each repo's
+- **`server-runner` uses the `local` executor:** the phone has no Docker, so each repo's
   `npm install` / `pytest` runs as a normal process on the phone. There is no sandbox, so
-  `EC2_AGENT_ALLOWED_REPO_OWNERS` limits cloning to your own repos. Keep it that way:
+  `RUNNER_ALLOWED_REPO_OWNERS` limits cloning to your own repos. Keep it that way:
   code from an allowed repo can read anything on the phone, including the `.env` files.
 - **Both backends listen on 127.0.0.1 only.** Only the tunnel can reach them.
 
@@ -65,7 +65,7 @@ cloudflared, then asks for:
 - **Groq API key**
 - **Cloudflare Tunnel token:** press Enter to skip for now. Step 3 covers it.
 
-At the end it prints `AGENT_SERVER_API_KEY` and `EC2_AGENT_API_KEY` for Vercel (step 4).
+At the end it prints `AGENT_SERVER_API_KEY` and `RUNNER_API_KEY` for Vercel (step 4).
 Then set an SSH password with `passwd`, and check both backends:
 
 ```bash
@@ -112,16 +112,16 @@ In the Vercel project's environment variables (Production), then redeploy:
 |---|---|
 | `AGENT_SERVER_URL` | `https://greenbranch-api.example.com` |
 | `AGENT_SERVER_API_KEY` | printed by the setup |
-| `EC2_AGENT_URL` | `https://greenbranch-runner.example.com` |
-| `EC2_AGENT_API_KEY` | printed by the setup |
+| `RUNNER_URL` | `https://greenbranch-runner.example.com` |
+| `RUNNER_API_KEY` | printed by the setup |
 | `NEXT_PUBLIC_SERVER_WS_URL` | `wss://greenbranch-api.example.com/api/v1` |
 
 To see the keys again, run this in Termux:
-`proot-distro login debian -- grep -h API_KEY /root/green-branch/server-ai/.env /root/green-branch/server-ec2/.env`
+`proot-distro login debian -- grep -h API_KEY /root/green-branch/server-ai/.env /root/green-branch/server-runner/.env`
 
 ## 5. Deploy on every push (GitHub Actions)
 
-`.github/workflows/phone-deploy.yaml` runs when `server-ai/`, `server-ec2/` or
+`.github/workflows/phone-deploy.yaml` runs when `server-ai/`, `server-runner/` or
 `deploy/phone/` change on `main`. It installs and imports both apps, then runs
 `deploy.sh` on the phone. `deploy.sh` fast-forwards, syncs dependencies, restarts both
 backends, waits for `/health`, and rolls back if they aren't healthy.
@@ -172,7 +172,7 @@ Run these in Termux. PM2 commands run inside Debian:
 ```bash
 proot-distro login debian -- pm2 list
 proot-distro login debian -- pm2 logs server-ai --lines 100
-proot-distro login debian -- pm2 restart server-ec2
+proot-distro login debian -- pm2 restart server-runner
 sh ~/.termux/boot/greenbranch          # start everything (also what runs at boot)
 ```
 
@@ -191,6 +191,6 @@ the tunnel.
 | Deploy fails: `PM2 isn't running` | Run `sh ~/.termux/boot/greenbranch` on the phone |
 | Deploy fails: `cannot fast-forward` | Something was committed or edited on the phone. Check `git status` in `/root/green-branch` |
 | Deploy fails: health check | The workflow log shows the last app logs, and the old version is already restored |
-| Dashboard: "only works on repositories owned by…" | Add the owner to `EC2_AGENT_ALLOWED_REPO_OWNERS` in `/root/green-branch/server-ec2/.env`, then `pm2 restart server-ec2` |
-| Tests time out | Raise `EC2_AGENT_INSTALL_TIMEOUT` / `EC2_AGENT_TEST_TIMEOUT` in `server-ec2/.env` |
+| Dashboard: "only works on repositories owned by…" | Add the owner to `RUNNER_ALLOWED_REPO_OWNERS` in `/root/green-branch/server-runner/.env`, then `pm2 restart server-runner` |
+| Tests time out | Raise `RUNNER_INSTALL_TIMEOUT` / `RUNNER_TEST_TIMEOUT` in `server-runner/.env` |
 | Everything stops when the screen is off | Battery settings in step 1, and the Android 12+ child-process setting |

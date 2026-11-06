@@ -40,29 +40,29 @@ if ! command -v cloudflared >/dev/null; then
   rm -f /tmp/cloudflared.deb
 fi
 
-log "Python dependencies for server-ai and server-ec2"
+log "Python dependencies for server-ai and server-runner"
 (cd "$ROOT/server-ai" && uv sync --frozen --no-dev)
-(cd "$ROOT/server-ec2" && uv sync --frozen --no-dev)
+(cd "$ROOT/server-runner" && uv sync --frozen --no-dev)
 
 mkdir -p "$CONFIG_DIR" "$REPOS_DIR"
 chmod 700 "$CONFIG_DIR"
 new_key() { python3 -c 'import secrets; print(secrets.token_urlsafe(32))'; }
 
-if [ ! -f "$ROOT/server-ec2/.env" ]; then
-  log "Configuring server-ec2"
+if [ ! -f "$ROOT/server-runner/.env" ]; then
+  log "Configuring server-runner"
   read -rp "GitHub users/orgs whose repos GreenBranch may fix, comma-separated [saiabhiramjaini]: " owners
-  cat >"$ROOT/server-ec2/.env" <<EOF
-EC2_AGENT_EXECUTOR=local
-EC2_AGENT_ALLOWED_REPO_OWNERS=${owners:-saiabhiramjaini}
-EC2_AGENT_HOST=127.0.0.1
-EC2_AGENT_PORT=8001
-EC2_AGENT_API_KEY=$(new_key)
-EC2_AGENT_REDIS_URL=redis://127.0.0.1:6379/0
-EC2_AGENT_REPOS_BASE_PATH=$REPOS_DIR
+  cat >"$ROOT/server-runner/.env" <<EOF
+RUNNER_EXECUTOR=local
+RUNNER_ALLOWED_REPO_OWNERS=${owners:-saiabhiramjaini}
+RUNNER_HOST=127.0.0.1
+RUNNER_PORT=8001
+RUNNER_API_KEY=$(new_key)
+RUNNER_REDIS_URL=redis://127.0.0.1:6379/0
+RUNNER_REPOS_BASE_PATH=$REPOS_DIR
 EOF
-  chmod 600 "$ROOT/server-ec2/.env"
+  chmod 600 "$ROOT/server-runner/.env"
 fi
-EC2_KEY=$(sed -n 's/^EC2_AGENT_API_KEY=//p' "$ROOT/server-ec2/.env")
+RUNNER_KEY=$(sed -n 's/^RUNNER_API_KEY=//p' "$ROOT/server-runner/.env")
 
 if [ ! -f "$ROOT/server-ai/.env" ]; then
   log "Configuring server-ai"
@@ -73,8 +73,8 @@ SERVER_HOST=127.0.0.1
 SERVER_PORT=8000
 SERVER_UVICORN_WORKERS=1
 SERVER_API_KEY=$(new_key)
-SERVER_EC2_AGENT_URL=http://127.0.0.1:8001
-SERVER_EC2_AGENT_API_KEY=$EC2_KEY
+SERVER_RUNNER_URL=http://127.0.0.1:8001
+SERVER_RUNNER_API_KEY=$RUNNER_KEY
 SERVER_GROQ_API_KEY=$groq_key
 EOF
   chmod 600 "$ROOT/server-ai/.env"
@@ -94,5 +94,5 @@ fi
 log "Done. Add these to the Vercel project's environment variables:"
 cat <<EOF
   AGENT_SERVER_API_KEY=$SERVER_KEY
-  EC2_AGENT_API_KEY=$EC2_KEY
+  RUNNER_API_KEY=$RUNNER_KEY
 EOF

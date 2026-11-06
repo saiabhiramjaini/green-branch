@@ -22,7 +22,6 @@ import {
   GitCommit,
   FileCode,
   Loader2,
-  Sparkles,
   AlertCircle,
   Edit3,
   Clock,
@@ -149,9 +148,9 @@ function buildPRTitle(fixes: Fix[], repoFullName: string): string {
   if (fixedFixes.length === 1) {
     const fix = fixedFixes[0];
     if (fix.commit_message) {
-      // Use commit message but strip any leading "fix:" prefix duplication
-      const msg = fix.commit_message.replace(/^fix:\s*/i, "").trim();
-      return `fix: ${msg.slice(0, 72)}`;
+      // Commit messages are already conventional ("fix(calc.py): …"); only add a prefix when missing
+      const msg = fix.commit_message.trim();
+      return (/^\w+(\([^)]*\))?!?:/.test(msg) ? msg : `fix: ${msg}`).slice(0, 80);
     }
     return `fix: Resolve ${fix.bug_type || "bug"} in ${fix.file}`;
   }

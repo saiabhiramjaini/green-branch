@@ -1,3 +1,3 @@
-from src.services.ec2_client import EC2Client
+from src.services.runner_client import RunnerClient
 
-__all__ = ["EC2Client"]
+__all__ = ["RunnerClient"]

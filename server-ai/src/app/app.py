@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
     # --- Startup ---
     print(f"{api_settings.app_name} v{api_settings.version} starting...")
-    print(f"EC2 Agent URL: {api_settings.ec2_agent_url}")
+    print(f"Runner URL: {api_settings.runner_url}")
     print(f"LLM Model: {api_settings.llm_model}")
     print(f"Max iterations: {api_settings.max_iterations}")
     if api_settings.uvicorn_workers != 1:
@@ -46,15 +46,15 @@ async def lifespan(app: FastAPI):
         else:
             print("WARNING: SERVER_API_KEY is not set — all authenticated endpoints will return 503")
 
-    # Verify EC2 agent is reachable (soft check — don't crash if it's down)
-    from src.services.ec2_client import EC2Client
-    client = EC2Client()
+    # Verify server-runner is reachable (soft check — don't crash if it's down)
+    from src.services.runner_client import RunnerClient
+    client = RunnerClient()
     try:
         await client.ping()
-        print("EC2 agent reachable ✓")
+        print("Runner reachable ✓")
     except Exception as e:
-        print(f"WARNING: EC2 agent not reachable at {api_settings.ec2_agent_url} — {e}")
-        print("The server will start, but agent runs will fail until the EC2 agent is up.")
+        print(f"WARNING: runner not reachable at {api_settings.runner_url} — {e}")
+        print("The server will start, but agent runs will fail until the runner is up.")
 
     yield  # App is running
 

@@ -11,7 +11,7 @@ export async function getGitHubToken(req: NextRequest): Promise<string | undefin
 }
 
 const BACKENDS = {
-  ec2: { url: process.env.EC2_AGENT_URL, key: process.env.EC2_AGENT_API_KEY, name: "EC2_AGENT_URL" },
+  runner: { url: process.env.RUNNER_URL, key: process.env.RUNNER_API_KEY, name: "RUNNER_URL" },
   agent: { url: process.env.AGENT_SERVER_URL, key: process.env.AGENT_SERVER_API_KEY, name: "AGENT_SERVER_URL" },
 } as const;
 

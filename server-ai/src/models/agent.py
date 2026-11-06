@@ -6,44 +6,42 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
-# ── Request ──────────────────────────────────────────────────────────────────
-
-class AgentRunRequest(BaseModel):
-    """Request body for POST /agent/run."""
-
-    repo_url: str = Field(..., description="GitHub repository URL")
-    language: str = Field(..., description="Project language: python or nodejs")
-    branch_name: str | None = Field(
-        default=None,
-        pattern=r"^[A-Za-z0-9_.][A-Za-z0-9_./-]{0,199}$",
-        description="Branch to commit fixes to (default: greenbranch/fix-<repo>-<timestamp>)",
-    )
-    install_command: str | None = Field(default=None, description="Custom install command")
-    test_command: str | None = Field(default=None, description="Custom test command")
-    branch: str | None = Field(
-        default=None,
-        pattern=r"^[A-Za-z0-9_.][A-Za-z0-9_./-]{0,199}$",
-        description="Branch to clone and test (default: the repository's default branch)",
-    )
-    max_iterations: int | None = Field(default=None, description="Override max iterations")
+GITHUB_REPO_URL_PATTERN = r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?(\.git)?/?$"
+BRANCH_NAME_PATTERN = r"^[A-Za-z0-9_.][A-Za-z0-9_./-]{0,199}$"
 
 
-class StartRunRequest(BaseModel):
-    """Request body for POST /agent/runs — register a streaming run."""
+# ── Requests ─────────────────────────────────────────────────────────────────
 
-    session_id: str | None = Field(default=None, description="Existing EC2 session (repo already cloned)")
-    repo_url: str = Field(..., pattern=r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?(\.git)?/?$")
+class _RunOptions(BaseModel):
+    """Options shared by streaming (POST /agent/runs) and blocking (POST /agent/run) runs."""
+
+    repo_url: str = Field(..., pattern=GITHUB_REPO_URL_PATTERN, description="GitHub repository URL (https)")
     language: Literal["python", "nodejs"] = Field(..., description="Project language")
     install_command: str | None = Field(default=None, description="Custom install command")
     test_command: str | None = Field(default=None, description="Custom test command")
     branch_name: str | None = Field(
         default=None,
-        pattern=r"^[A-Za-z0-9_.][A-Za-z0-9_./-]{0,199}$",
+        pattern=BRANCH_NAME_PATTERN,
         description="Branch to commit fixes to (default: greenbranch/fix-<repo>-<timestamp>)",
     )
     max_iterations: int | None = Field(default=None, ge=1, le=10, description="Override max iterations")
     github_token: str | None = Field(default=None, description="GitHub OAuth token used to clone, push and open the PR")
+
+
+class StartRunRequest(_RunOptions):
+    """Request body for POST /agent/runs — register a streaming run."""
+
+    session_id: str | None = Field(default=None, description="Existing session (repo already cloned)")
+
+
+class AgentRunRequest(_RunOptions):
+    """Request body for POST /agent/run — run the pipeline and wait for the report."""
+
+    branch: str | None = Field(
+        default=None,
+        pattern=BRANCH_NAME_PATTERN,
+        description="Branch to clone and test (default: the repository's default branch)",
+    )
 
 
 class StartRunResponse(BaseModel):
@@ -63,6 +61,7 @@ class FixApplied(BaseModel):
     line_number: int | None = Field(default=None, description="Line number of the error")
     commit_message: str = Field(default="", description="Commit message for this fix")
     status: str = Field(default="fixed", description="fixed | failed")
+    description: str = Field(default="", description="Root cause, or why the fix failed")
 
 
 class CITimelineEntry(BaseModel):
@@ -91,7 +90,7 @@ class RunSummary(BaseModel):
 # ── Response ─────────────────────────────────────────────────────────────────
 
 class AgentRunResponse(BaseModel):
-    """Full response for POST /agent/run — everything the dashboard needs."""
+    """Full response for POST /agent/run."""
 
     session_id: str
     status: str = Field(..., description="passed | failed | partial_fix")
@@ -99,15 +98,11 @@ class AgentRunResponse(BaseModel):
     iterations: int
     message: str = ""
 
-    # Dashboard sections
     run_summary: RunSummary
     fixes_applied: list[FixApplied] = []
     ci_timeline: list[CITimelineEntry] = []
 
-    # Git
     commit_hash: str | None = None
     branch_name: str | None = None
+    pr_url: str | None = None
     errors_remaining: list[dict] = []
-
-    # Full debug trace: every API call with request + response payloads
-    debug_trace: list[dict] = Field(default_factory=list, description="Ordered list of API call events")

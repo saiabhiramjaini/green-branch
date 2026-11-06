@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Terminal } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 
 function GitHubIcon({ className }: { className?: string }) {
   return (

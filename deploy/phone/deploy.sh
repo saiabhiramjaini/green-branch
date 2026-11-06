@@ -2,7 +2,7 @@
 # Deploys a commit on the phone. Runs inside proot-distro Debian; GitHub Actions streams it over SSH:
 #   ssh phone 'proot-distro login debian -- bash -s -- <commit-sha>' < deploy/phone/deploy.sh
 #
-# Fast-forwards the checkout, syncs Python dependencies, restarts server-ec2 and server-ai
+# Fast-forwards the checkout, syncs Python dependencies, restarts server-runner and server-ai
 # (never the tunnel this deploy is running through), checks /health, and rolls back if unhealthy.
 set -euo pipefail
 
@@ -30,11 +30,11 @@ git fetch --quiet origin main
 git merge --ff-only --quiet "$SHA" || fail "cannot fast-forward to $SHA"
 
 sync_deps() {
-  (cd server-ai && uv sync --frozen --no-dev --quiet) && (cd server-ec2 && uv sync --frozen --no-dev --quiet)
+  (cd server-ai && uv sync --frozen --no-dev --quiet) && (cd server-runner && uv sync --frozen --no-dev --quiet)
 }
 
 restart() {
-  pm2 startOrReload "$ECOSYSTEM" --only server-ec2 >/dev/null \
+  pm2 startOrReload "$ECOSYSTEM" --only server-runner >/dev/null \
     && pm2 startOrReload "$ECOSYSTEM" --only server-ai >/dev/null
 }
 
@@ -57,7 +57,7 @@ if sync_deps && restart && healthy; then
 fi
 
 echo "Health check failed. Recent logs:" >&2
-pm2 logs server-ec2 --lines 30 --nostream >&2 || true
+pm2 logs server-runner --lines 30 --nostream >&2 || true
 pm2 logs server-ai --lines 30 --nostream >&2 || true
 
 log "Rolling back to ${PREV:0:8}"

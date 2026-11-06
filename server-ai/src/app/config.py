@@ -37,18 +37,18 @@ class ApiSettings(BaseSettings):
         description="Seconds a run ticket from POST /agent/runs stays valid for opening the WebSocket",
     )
 
-    # ── EC2 Agent ──
-    ec2_agent_url: str = Field(
+    # ── Runner (server-runner) ──
+    runner_url: str = Field(
         default="http://localhost:8001",
-        description="Base URL of the EC2 agent service",
+        description="Base URL of server-runner",
     )
-    ec2_agent_api_key: str = Field(
+    runner_api_key: str = Field(
         default="",
-        description="API key for authenticating with EC2 agent",
+        description="API key for server-runner (its RUNNER_API_KEY)",
     )
-    ec2_agent_timeout: float = Field(
+    runner_timeout: float = Field(
         default=900.0,
-        description="Seconds to wait on the EC2 agent; must cover a dependency install plus a test run",
+        description="Seconds to wait on the runner; must cover a dependency install plus a test run",
     )
 
     # ── LLM (Groq) ──
@@ -66,7 +66,7 @@ class ApiSettings(BaseSettings):
     # ── Agent ──
     max_iterations: int = Field(
         default=5,
-        description="Max LangGraph healing iterations",
+        description="Max test runs per pipeline (the first run plus one per fix attempt)",
     )
 
     @field_validator("log_level")

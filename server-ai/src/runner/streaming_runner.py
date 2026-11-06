@@ -1,4 +1,7 @@
-"""streaming_runner — runs the healing pipeline with real-time WebSocket log streaming."""
+"""streaming_runner — the healing pipeline, with optional real-time event streaming.
+
+Used by the WebSocket endpoint (events streamed live) and by POST /agent/run (no events).
+"""
 
 import logging
 import time
@@ -7,8 +10,8 @@ from typing import Any, Awaitable, Callable
 
 from src.app.config import api_settings
 from src.core.exceptions import (
-    EC2AgentError,
-    EC2AgentUnreachable,
+    RunnerError,
+    RunnerUnreachable,
     FixGenerationError,
     LLMError,
     PipelineAborted,
@@ -24,7 +27,7 @@ from src.runner.fix_engine import (
     pick_error,
     revert_fix,
 )
-from src.services.ec2_client import EC2Client
+from src.services.runner_client import RunnerClient
 from src.services.github import (
     GitHubAPIError,
     create_pull_request,
@@ -42,7 +45,7 @@ def _ts() -> str:
 
 
 def _error_detail(exc: Exception) -> str:
-    """User-facing message for an exception (EC2 agent errors carry a clean ``detail``)."""
+    """User-facing message for an exception (runner errors carry a clean ``detail``)."""
     return getattr(exc, "detail", None) or str(exc)
 
 
@@ -68,7 +71,7 @@ class _StreamingPipeline:
     def __init__(
         self,
         *,
-        client: EC2Client,
+        client: RunnerClient,
         emit: LogFn,
         session_id: str,
         language: str,
@@ -142,7 +145,7 @@ class _StreamingPipeline:
                     test_command=self.test_command,
                     on_line=self._on_stream_line,
                 )
-            except (EC2AgentError, EC2AgentUnreachable) as e:
+            except (RunnerError, RunnerUnreachable) as e:
                 message = _error_detail(e)
                 await self.log(f"  ERROR: {message}")
                 await self.step(step_name, "error")
@@ -168,6 +171,16 @@ class _StreamingPipeline:
                     raise PipelineAborted(
                         "No test files found. Please check your test command and make sure test files "
                         "exist (e.g. test_*.py for pytest, *.test.ts for jest/vitest).",
+                        step=step_name,
+                    )
+                if not passed and not errors:
+                    # e.g. "pytest: command not found", or a crash before any test ran
+                    await self.log("")
+                    await self.log("  ✗ The tests failed, but no failing test could be found in the output.")
+                    await self.step(step_name, "error")
+                    raise PipelineAborted(
+                        "The test command failed before reporting any test results. Check the install and "
+                        "test commands (is the test runner installed?) — the build log shows the error.",
                         step=step_name,
                     )
                 self.total_failures = len(errors)
@@ -271,7 +284,7 @@ class _StreamingPipeline:
                 await self._record_failure(error, f"AI could not generate a fix: {e}")
                 await self.step("fixing", "error")
                 return None
-            except (FixGenerationError, EC2AgentError) as e:
+            except (FixGenerationError, RunnerError) as e:
                 await self._record_failure(error, f"Fix could not be applied: {_error_detail(e)}")
                 await self.step("fixing", "error")
                 continue
@@ -364,7 +377,7 @@ class _StreamingPipeline:
                 commit_hash = result.get("commit_hash")
                 total_commits += 1
                 await self.log(f"  ✓ committed ({commit_hash[:8] if commit_hash else 'ok'})")
-            except (EC2AgentError, EC2AgentUnreachable) as e:
+            except (RunnerError, RunnerUnreachable) as e:
                 await self.log(f"  ✗ commit error: {_error_detail(e)}")
 
         await self.step("committing", "done" if total_commits else "error")
@@ -432,21 +445,23 @@ async def run_streaming(
     branch_name: str | None = None,
     max_iterations: int | None = None,
     session_id: str | None = None,
+    branch: str | None = None,
     github_token: str | None = None,
     log: LogFn | None = None,
 ) -> dict[str, Any]:
     """
-    Full healing pipeline with real-time log streaming.
+    Full healing pipeline: clone → test/fix loop → commit → PR.
 
-    ``log`` is an async callback that receives event dicts to forward to the
-    WebSocket client.  If *None*, logging is silently skipped.
+    Clones *branch* (default: the repo's default branch) unless *session_id* names
+    a session that is already cloned. ``log`` is an async callback that receives
+    event dicts to forward to the WebSocket client; if *None*, events are dropped.
 
     Raises PipelineAborted when the run cannot proceed (clone failed, no tests,
     test infrastructure down). The session is always deleted afterwards.
     """
     emit = log or _noop
     start = time.time()
-    client = EC2Client()
+    client = RunnerClient()
     max_iters = max(1, max_iterations or api_settings.max_iterations)
 
     # ── 1. Clone (or reuse the session the frontend already created) ─────
@@ -458,11 +473,11 @@ async def run_streaming(
         else:
             await emit({"type": "step", "step": "cloning", "status": "running"})
             await emit({"type": "log", "line": f"$ git clone {repo_url}", "ts": _ts()})
-            session = await client.create_session(repo_url, language, github_token=github_token)
+            session = await client.create_session(repo_url, language, branch=branch, github_token=github_token)
             session_id = session["session_id"]
             await emit({"type": "log", "line": f"  Cloned into session {session_id[:8]}…", "ts": _ts()})
             await emit({"type": "step", "step": "cloning", "status": "done"})
-    except (EC2AgentError, EC2AgentUnreachable) as e:
+    except (RunnerError, RunnerUnreachable) as e:
         message = _error_detail(e)
         await emit({"type": "log", "line": f"  ERROR: {message}", "ts": _ts()})
         await emit({"type": "step", "step": "cloning", "status": "error"})

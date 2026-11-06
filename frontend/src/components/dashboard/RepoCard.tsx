@@ -1,5 +1,4 @@
 import React from "react";
-import { GitHubIcon } from "./GitHubIcon";
 import { Lock, CheckCircle2, Globe } from "lucide-react";
 import { Repo } from "../../app/dashboard/types";
 import { getLangColor, timeAgo } from "../../app/dashboard/utils";

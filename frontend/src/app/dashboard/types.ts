@@ -54,3 +54,22 @@ export interface StepState {
 }
 
 export type Phase = "idle" | "configure" | "streaming" | "done" | "failed";
+
+export type Language = "nodejs" | "python";
+
+/** Where a run failed: while cloning, or while running the pipeline. */
+export type FailedStep = "cloning" | "executing";
+
+/** The `complete` event's result from the server. */
+export interface FinalResult {
+  passed: boolean;
+  branch_name: string | null; // only set when fixes were actually pushed
+  base_branch: string;
+  commit_hash: string | null;
+  total_commits: number;
+  time_taken_seconds: number;
+  total_fixed: number;
+  total_failures: number;
+  iterations: number;
+  repo_url: string;
+}

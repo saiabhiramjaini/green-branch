@@ -1,6 +1,6 @@
 name: Deploy backends to phone
 
-# server-ai and server-ec2 run on an Android phone (Termux + proot-distro Debian + PM2),
+# server-ai and server-runner run on an Android phone (Termux + proot-distro Debian + PM2),
 # reached through a Cloudflare Tunnel. See deploy/phone/README.md for the one-time setup
 # and the secrets this workflow needs.
 
@@ -9,7 +9,7 @@ on:
     branches: [main]
     paths:
       - 'server-ai/**'
-      - 'server-ec2/**'
+      - 'server-runner/**'
       - 'deploy/phone/**'
       - '.github/workflows/phone-deploy.yaml'
   workflow_dispatch:      # "Run workflow" button in the Actions tab
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [server-ai, server-ec2]
+        service: [server-ai, server-runner]
     defaults:
       run:
         working-directory: ${{ matrix.service }}

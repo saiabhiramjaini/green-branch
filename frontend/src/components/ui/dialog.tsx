@@ -2,9 +2,8 @@
 
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
-import { X, CheckCircle2, GitPullRequest, ArrowRight } from "lucide-react"
+import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 
 const Dialog = DialogPrimitive.Root
 const DialogTrigger = DialogPrimitive.Trigger
@@ -104,72 +103,6 @@ const DialogDescription = React.forwardRef<
     />
 ))
 DialogDescription.displayName = DialogPrimitive.Description.displayName
-
-// ── Custom PR Success Dialog Component ──
-export function PRSuccessDialog({
-    open,
-    onOpenChange,
-    prUrl,
-    repoName
-}: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    prUrl: string;
-    repoName?: string;
-}) {
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md border-primary/20 bg-card overflow-hidden">
-                <div className="absolute top-0 right-0 p-2">
-                    {/* Close button provided by DialogContent */}
-                </div>
-
-                {/* Decorative background globs */}
-                <div className="absolute -top-10 -left-10 h-32 w-32 rounded-full bg-primary/10 blur-3xl" />
-                <div className="absolute -bottom-10 -right-10 h-32 w-32 rounded-full bg-primary/10 blur-3xl" />
-
-                <DialogHeader className="items-center text-center space-y-4 pt-4">
-                    <div className="relative">
-                        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20">
-                            <GitPullRequest className="h-8 w-8 text-primary" />
-                        </div>
-                        <div className="absolute -right-1 -bottom-1 flex h-6 w-6 items-center justify-center rounded-full bg-background ring-2 ring-background">
-                            <CheckCircle2 className="h-5 w-5 text-green-500 fill-green-500/10" />
-                        </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <DialogTitle className="text-xl">Pull Request Created!</DialogTitle>
-                        <DialogDescription className="text-base text-muted-foreground max-w-[300px] mx-auto">
-                            Your AI-generated fixes have been pushed and a PR has been raised for review.
-                        </DialogDescription>
-                    </div>
-                </DialogHeader>
-
-                <div className="mt-4 space-y-4">
-                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm flex items-center justify-between">
-                        <span className="text-muted-foreground flex items-center gap-2">
-                            <span className="h-2 w-2 rounded-full bg-primary/50" />
-                            Branch: <span className="font-mono text-foreground">fix/greenbranch</span>
-                        </span>
-                        <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Auto-generated</span>
-                    </div>
-
-                    <DialogFooter className="sm:justify-center w-full">
-                        <Button
-                            className="w-full gap-2 shadow-lg hover:shadow-primary/20 transition-all text-base h-11"
-                            size="lg"
-                            onClick={() => window.open(prUrl, "_blank")}
-                        >
-                            View Pull Request
-                            <ArrowRight className="h-4 w-4 ml-1" />
-                        </Button>
-                    </DialogFooter>
-                </div>
-            </DialogContent>
-        </Dialog>
-    )
-}
 
 export {
     Dialog,

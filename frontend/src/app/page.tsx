@@ -114,11 +114,8 @@ export default function Home() {
   if (status === "loading" || status === "authenticated") return null;
 
   const handleRunAgent = () => {
-    // Store the URL in localStorage so the dashboard can read it
-    localStorage.setItem("greenbranch_repo_url", repoUrl);
-
-    // Navigate to dashboard
-    router.push("/dashboard");
+    // The dashboard reads the repo from the query string and runs it without sign-in
+    router.push(`/dashboard?repo=${encodeURIComponent(repoUrl.trim())}`);
   };
 
   const isFormValid = repoUrl.trim().length > 0;

@@ -5,7 +5,6 @@ from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar
 
 import fastapi
-from fastapi.responses import JSONResponse
 
 logger = logging.getLogger("greenbranch")
 
