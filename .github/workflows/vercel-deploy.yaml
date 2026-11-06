@@ -8,6 +8,10 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/vercel-deploy.yaml'
+  workflow_dispatch:      # "Run workflow" button in the Actions tab
 
 permissions:
   contents: read

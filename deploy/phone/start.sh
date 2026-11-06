@@ -10,8 +10,13 @@ termux-wake-lock
 
 pgrep -x sshd >/dev/null || sshd
 
-# proot keeps running for as long as PM2 does, so start it in the background
-nohup proot-distro login debian -- bash -lc \
+# Keep the session alive for as long as PM2 runs. proot-distro 5+ kills a session's
+# processes when its command exits unless told not to; older versions never did.
+KEEP=""
+proot-distro login --help 2>&1 | grep -q -- --no-kill-on-exit && KEEP=--no-kill-on-exit
+
+# Runs in the background: the session lasts as long as PM2 does
+nohup proot-distro login $KEEP debian -- bash -lc \
   'pm2 startOrReload /root/green-branch/deploy/phone/ecosystem.config.js && pm2 save' \
   >"$HOME/greenbranch-start.log" 2>&1 &
 
