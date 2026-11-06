@@ -419,7 +419,8 @@ token server-side. The browser only opens the WebSocket, using a single-use `run
 | `SERVER_RUNNER_API_KEY` | — | Must equal Server-Runner's `RUNNER_API_KEY` |
 | `SERVER_RUNNER_TIMEOUT` | `900` | Seconds to wait on Server-Runner (covers an install plus a test run) |
 | `SERVER_GROQ_API_KEY` | — | Groq API key |
-| `SERVER_LLM_MODEL` | `llama-3.3-70b-versatile` | Groq model |
+| `SERVER_LLM_MODEL` | `openai/gpt-oss-120b` | Groq model |
+| `SERVER_LLM_MAX_TOKENS` | `8192` | Max tokens per LLM call, including the model's reasoning |
 | `SERVER_MAX_ITERATIONS` | `5` | Test runs per pipeline |
 | `SERVER_RUN_TICKET_TTL` | `120` | Seconds a `run_id` stays valid |
 | `SERVER_CORS_ALLOW_ORIGINS` | `[]` | JSON list; not needed for the WebSocket |

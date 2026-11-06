@@ -57,10 +57,10 @@ class ApiSettings(BaseSettings):
         description="Groq API key",
     )
     llm_model: str = Field(
-        default="llama-3.3-70b-versatile",
+        default="openai/gpt-oss-120b",
         description="Groq model name",
     )
-    llm_max_tokens: int = Field(default=4096, description="Max tokens per LLM call")
+    llm_max_tokens: int = Field(default=8192, description="Max tokens per LLM call, including the model's reasoning")
     llm_temperature: float = Field(default=0.2, description="LLM temperature")
 
     # ── Agent ──
