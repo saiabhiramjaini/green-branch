@@ -1,5 +1,6 @@
 "use client";
 
+import { useDocumentTitle } from "@/lib/use-document-title";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Header } from "@/components/app/Header";
@@ -8,6 +9,7 @@ import { RecentRuns } from "@/components/app/RecentRuns";
 
 function Home() {
   const repo = useSearchParams().get("repo") ?? "";
+  useDocumentTitle("GreenBranch");
   return (
     <>
       <Header />
@@ -15,7 +17,7 @@ function Home() {
         <div className="flex flex-col gap-8">
           <div className="space-y-2">
             <h1 className="text-[28px] font-semibold leading-tight tracking-tight">Fix failing tests</h1>
-            <p className="text-foreground-lighter">Runs your tests, keeps only the fixes that make them pass, and opens a pull request.</p>
+            <p className="text-pretty text-foreground-lighter">Runs your tests, keeps only the fixes that make them pass, and opens a pull request.</p>
           </div>
           <RunForm key={repo} initialRepoUrl={repo} />
         </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useDocumentTitle } from "@/lib/use-document-title";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,6 +16,7 @@ function SignIn() {
   // Only same-site paths, so the query string can't redirect elsewhere
   const callbackUrl = requested.startsWith("/") && !requested.startsWith("//") ? requested : "/";
   const [pending, setPending] = useState(false);
+  useDocumentTitle("Sign in · GreenBranch");
 
   useEffect(() => {
     if (status === "authenticated") router.replace(callbackUrl);

@@ -226,7 +226,8 @@ export function statusFromResult(result: FinalResult | null | undefined): RunSta
 }
 
 export function formatDuration(ms: number) {
-  const s = Math.max(0, Math.round(ms / 1000));
+  if (ms < 1000) return "<1s";
+  const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return `${m}m ${String(s % 60).padStart(2, "0")}s`;

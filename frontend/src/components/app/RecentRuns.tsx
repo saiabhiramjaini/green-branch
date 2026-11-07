@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRunHistory } from "@/app/dashboard/run-history";
 import { timeAgo } from "@/app/dashboard/utils";
@@ -22,6 +22,12 @@ const PAGE = 8;
 export function RecentRuns() {
   const runs = useRunHistory();
   const [showAll, setShowAll] = useState(false);
+  // Re-render every minute so "4m ago" stays true
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
   if (runs.length === 0) return null;
   const visible = showAll ? runs : runs.slice(0, PAGE);
 
@@ -37,7 +43,7 @@ export function RecentRuns() {
               <StatusIcon tone={toneOfRun(run.status)} label={RUN_STATUS_LABEL[run.status]} />
               <span className="min-w-0 flex-1 truncate text-sm">{run.repo.full_name}</span>
               <span className="hidden text-[13px] text-foreground-lighter sm:inline">{RUN_STATUS_LABEL[run.status]}</span>
-              <span className="w-16 text-right text-[13px] text-foreground-lighter">{timeAgo(new Date(run.startedAt).toISOString())}</span>
+              <span className="w-16 text-right text-[13px] tabular-nums text-foreground-lighter">{timeAgo(new Date(run.startedAt).toISOString())}</span>
             </Link>
           </li>
         ))}

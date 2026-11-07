@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -14,6 +15,7 @@ import { Wordmark } from "@/components/brand";
 
 export function Header() {
   const { data: session, status } = useSession();
+  const pathname = usePathname();
 
   return (
     <header className="mx-auto flex h-16 w-full max-w-[960px] items-center justify-between px-5">
@@ -49,7 +51,10 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (
-        <Link href="/signin" className="text-sm text-foreground-lighter hover:text-foreground">
+        <Link
+          href={pathname && pathname !== "/" ? `/signin?callbackUrl=${encodeURIComponent(pathname)}` : "/signin"}
+          className="text-sm text-foreground-lighter hover:text-foreground"
+        >
           Sign in
         </Link>
       )}

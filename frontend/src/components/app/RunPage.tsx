@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CreatePRDialog } from "@/components/dashboard/CreatePRDialog";
 import { PRSuccessAlertDialog } from "@/components/dashboard/PRSuccessDialog";
@@ -90,22 +91,25 @@ export function RunPage({ run, live, signedIn }: { run: RunRecord; live: boolean
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-[720px] flex-col gap-8 px-5 pb-24 pt-[6vh]">
+    <main className="mx-auto flex w-full max-w-[720px] flex-col gap-8 px-5 pb-24 pt-6 sm:pt-10">
       {/* Heading */}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
-          <div className="min-w-0 space-y-1">
-            <h1 className="truncate text-[22px] font-semibold tracking-tight">
+        <Link href="/" className="-ml-0.5 inline-flex w-fit items-center gap-1 text-[13px] text-foreground-lighter hover:text-foreground">
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Runs
+        </Link>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="min-w-0 truncate text-[22px] font-semibold tracking-tight">
               <a href={run.repo.html_url} target="_blank" rel="noopener noreferrer" className="hover:underline hover:underline-offset-4">
                 {run.repo.full_name}
               </a>
             </h1>
-            <p className="text-[13px] text-foreground-lighter">{summary}</p>
+            <span className={cn("inline-flex shrink-0 items-center gap-1.5 text-sm font-medium", STATUS_TEXT[tone])}>
+              <StatusIcon tone={tone} label={statusText} />
+              {statusText}
+            </span>
           </div>
-          <span className={cn("inline-flex items-center gap-1.5 pt-1 text-sm font-medium", STATUS_TEXT[tone])}>
-            <StatusIcon tone={tone} label={statusText} />
-            {statusText}
-          </span>
+          <p className="text-[13px] tabular-nums text-foreground-lighter">{summary}</p>
         </div>
 
         {run.status === "error" && (
@@ -119,15 +123,19 @@ export function RunPage({ run, live, signedIn }: { run: RunRecord; live: boolean
         )}
 
         {!live && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
             {prUrl ? (
-              <Button asChild>
+              <Button asChild className="col-span-2">
                 <a href={prUrl} target="_blank" rel="noopener noreferrer">
                   Pull request {prNumber ? `#${prNumber}` : ""} <ArrowUpRight />
                 </a>
               </Button>
             ) : (
-              branch && <Button onClick={() => setCreateOpen(true)}>Create pull request</Button>
+              branch && (
+                <Button className="col-span-2" onClick={() => setCreateOpen(true)}>
+                  Create pull request
+                </Button>
+              )
             )}
             {branch && (
               <Button variant="outline" asChild>
@@ -136,7 +144,7 @@ export function RunPage({ run, live, signedIn }: { run: RunRecord; live: boolean
                 </a>
               </Button>
             )}
-            <Button variant="ghost" onClick={rerun}>
+            <Button variant={branch ? "outline" : "default"} className={branch ? "sm:border-transparent sm:text-foreground-lighter sm:hover:text-foreground" : "col-span-2 sm:col-span-1"} onClick={rerun}>
               Run again
             </Button>
           </div>
@@ -162,9 +170,15 @@ export function RunPage({ run, live, signedIn }: { run: RunRecord; live: boolean
       {/* Full log */}
       {d.log.length > 0 && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-4 text-[13px]">
-            <button type="button" onClick={() => setShowLog((v) => !v)} aria-expanded={showLog} className="text-foreground-lighter hover:text-foreground">
-              {showLog ? "Hide full log" : `Show full log (${d.log.length} lines)`}
+          <div className="flex items-center gap-5 text-[13px]">
+            <button
+              type="button"
+              onClick={() => setShowLog((v) => !v)}
+              aria-expanded={showLog}
+              className="inline-flex items-center gap-1.5 text-foreground-lighter hover:text-foreground"
+            >
+              <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", showLog && "rotate-90")} aria-hidden />
+              Full log <span className="tabular-nums text-foreground-muted">{d.log.length} lines</span>
             </button>
             {showLog && <LogActions log={d.log} fileName={`greenbranch-${run.repo.full_name.replace("/", "-")}-${run.number}.log`} />}
           </div>
@@ -232,14 +246,14 @@ function StepRow({
         onClick={onToggle}
         disabled={pending}
         aria-expanded={pending ? undefined : open}
-        className="flex w-full items-center gap-3 py-3 text-left disabled:cursor-default"
+        className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-md px-2 py-3 text-left transition-colors enabled:hover:bg-surface-100 disabled:cursor-default"
       >
         <StatusIcon tone={toneOfItem(step.status)} label={step.status} />
         <span className={cn("min-w-0 flex-1 truncate text-sm", pending ? "text-foreground-muted" : "text-foreground")}>
           {step.kind === "edit" ? <span className="font-mono text-[13px]">{step.title.replace(/^Edit /, "")}</span> : step.title}
           <span className="ml-2 text-[13px] text-foreground-lighter">{step.detail}</span>
         </span>
-        <span className="font-mono text-xs text-foreground-lighter">{dur}</span>
+        <span className="font-mono text-xs tabular-nums text-foreground-lighter">{dur}</span>
         {!pending && <ChevronRight className={cn("h-3.5 w-3.5 text-foreground-muted transition-transform", open && "rotate-90")} aria-hidden />}
       </button>
 

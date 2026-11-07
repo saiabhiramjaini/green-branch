@@ -1,10 +1,10 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ChevronDown, Lock } from "lucide-react";
+import { ChevronDown, Loader2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRunnerContext } from "@/app/runner-context";
@@ -52,12 +52,18 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
 
   const live = runner.active?.status === "running" ? runner.active : null;
 
+  // Focus the box on desktop only; on phones it would pop the keyboard on load
+  useEffect(() => {
+    if (window.matchMedia("(pointer: fine)").matches) inputRef.current?.focus();
+  }, []);
+
   const suggestions = useMemo(() => {
     if (!session) return [];
     const q = query.trim().toLowerCase();
     return github.repos.filter((r) => r.full_name.toLowerCase().includes(q)).slice(0, 8);
   }, [session, github.repos, query]);
-  const showList = open && suggestions.length > 0;
+  const loadingRepos = !!session && github.loading;
+  const showList = open && (suggestions.length > 0 || loadingRepos);
 
   const applyLanguage = (lang: Language) => {
     setLanguage(lang);
@@ -114,7 +120,7 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
               error ? "border-danger" : "border-border-strong hover:border-border-stronger focus-within:border-foreground/40 focus-within:ring-4 focus-within:ring-foreground/5"
             )}
           >
-            <span className="select-none font-mono text-[13px] text-foreground-muted">github.com/</span>
+            <span className="select-none font-mono text-base text-foreground-lighter sm:text-[13px]">github.com/</span>
             <input
               ref={inputRef}
               value={query}
@@ -148,11 +154,13 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
               aria-expanded={showList}
               aria-controls={listId}
               aria-autocomplete="list"
+              aria-activedescendant={showList && suggestions[active] ? `${listId}-${active}` : undefined}
               aria-invalid={!!error}
+              aria-describedby={error ? `${listId}-error` : undefined}
               autoComplete="off"
+              autoCapitalize="off"
               spellCheck={false}
-              autoFocus
-              className="h-full min-w-0 flex-1 bg-transparent font-mono text-[13px] text-foreground outline-none placeholder:text-foreground-muted"
+              className="h-full min-w-0 flex-1 bg-transparent font-mono text-base text-foreground outline-none placeholder:text-foreground-muted sm:text-[13px]"
             />
           </div>
 
@@ -162,8 +170,13 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
               role="listbox"
               className="scroll-quiet absolute left-0 right-0 top-[calc(100%+6px)] z-20 max-h-80 overflow-y-auto rounded-lg border border-border bg-background p-1 shadow-[0_8px_30px_rgb(0_0_0/0.08)]"
             >
+              {loadingRepos && suggestions.length === 0 && (
+                <li className="flex items-center gap-2 px-2.5 py-2 text-[13px] text-foreground-lighter">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Loading your repositories…
+                </li>
+              )}
               {suggestions.map((repo, i) => (
-                <li key={repo.id} role="option" aria-selected={i === active}>
+                <li key={repo.id} id={`${listId}-${i}`} role="option" aria-selected={i === active}>
                   <button
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
@@ -188,7 +201,11 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
         </Button>
       </div>
 
-      {error && <p className="text-[13px] text-danger">{error}</p>}
+      {error && (
+        <p id={`${listId}-error`} className="text-[13px] text-danger">
+          {error}
+        </p>
+      )}
 
       {live && (
         <p className="text-[13px] text-foreground-lighter">
@@ -204,13 +221,16 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
           type="button"
           onClick={() => setShowOptions((v) => !v)}
           aria-expanded={showOptions}
-          className="inline-flex items-center gap-1.5 text-[13px] text-foreground-lighter hover:text-foreground"
+          className="inline-flex max-w-full items-center gap-1.5 text-[13px] text-foreground-lighter hover:text-foreground"
         >
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !showOptions && "-rotate-90")} aria-hidden />
           Options
           {!showOptions && (
-            <span className="text-foreground-muted">
-              · {LANGUAGE_LABELS[language]} · <span className="font-mono">{test}</span>
+            <span className="flex min-w-0 items-center gap-1.5 text-foreground-muted">
+              <span aria-hidden>·</span>
+              {LANGUAGE_LABELS[language]}
+              <span aria-hidden>·</span>
+              <span className="truncate font-mono text-xs">{test}</span>
             </span>
           )}
         </button>
@@ -222,7 +242,7 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
               <select
                 value={language}
                 onChange={(e) => applyLanguage(e.target.value as Language)}
-                className="h-9 rounded-md border border-border-strong bg-background px-2.5 text-sm outline-none hover:border-border-stronger focus-visible:border-foreground/40"
+                className="h-9 rounded-md border border-border-strong bg-background px-2.5 text-base outline-none hover:border-border-stronger focus-visible:border-foreground/40 sm:text-sm"
               >
                 {(Object.keys(LANGUAGE_LABELS) as Language[]).map((l) => (
                   <option key={l} value={l}>
@@ -244,7 +264,7 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
                   setCommandsEdited(true);
                 }}
                 spellCheck={false}
-                className="font-mono text-[13px]"
+                className="font-mono sm:text-[13px]"
               />
             </label>
             <label className="flex flex-col gap-1.5">
@@ -256,7 +276,7 @@ export function RunForm({ initialRepoUrl }: { initialRepoUrl: string }) {
                   setCommandsEdited(true);
                 }}
                 spellCheck={false}
-                className="font-mono text-[13px]"
+                className="font-mono sm:text-[13px]"
               />
             </label>
           </div>
