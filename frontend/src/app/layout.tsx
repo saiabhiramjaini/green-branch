@@ -1,25 +1,24 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Source_Code_Pro } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const sourceCode = Source_Code_Pro({ subsets: ["latin"], variable: "--font-source-code" });
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
   title: { default: "GreenBranch", template: "%s · GreenBranch" },
-  description:
-    "Runs your test suite, asks a model for a small edit for each failure, keeps only the edits the tests confirm, and opens a pull request.",
+  description: "Runs your tests, keeps only the fixes that make them pass, and opens a pull request.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#131413",
-  colorScheme: "dark",
+  themeColor: "#ffffff",
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`dark ${inter.variable} ${sourceCode.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
       <body className="min-h-screen font-sans antialiased">
         <Providers>{children}</Providers>
       </body>

@@ -5,81 +5,69 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * GreenBranch console theme — dark only.
- * Values match Supabase's open-source dark theme (packages/ui, MIT/Apache):
- * near-black neutrals with a faint green hue, a deep-green primary button and
- * #3ECF8E reserved for success and brand moments.
+ * GreenBranch — light, minimal.
+ * White page, near-black text, hairline greys. Colour only carries status:
+ * green passed, red failed, amber running. Every text colour here passes 4.5:1 on white.
  */
 :root {
-  /* Surfaces */
-  --background: #131413;
-  --surface-75: #161817;
-  --surface-100: #181a19;
-  --surface-200: #1a1c1b;
-  --surface-300: #1e201f;
-  --selection: #222423;
-  --overlay: #1e201f;
+  --background: #ffffff;
+  --surface-100: #fafafa;
+  --surface-200: #f5f5f5;
+  --surface-300: #ffffff;
+  --selection: #f4f4f5;
+  --overlay: #ffffff;
 
-  /* Text */
-  --foreground: #edefee;
-  --foreground-light: #bcbdbc;
-  --foreground-lighter: #989a99;
-  --foreground-muted: #6b6d6c;
+  --foreground: #0a0a0a;
+  --foreground-light: #3f3f46;
+  --foreground-lighter: #6b6b70;
+  --foreground-muted: #a1a1aa;
 
-  /* Borders */
-  --border: #282a29;
-  --border-muted: #232423;
-  --border-strong: #303130;
-  --border-stronger: #383938;
+  --border: #ececee;
+  --border-muted: #f2f2f3;
+  --border-strong: #e2e2e5;
+  --border-stronger: #c9c9ce;
 
-  /* Brand */
-  --brand: #3ecf8e;
-  --brand-link: #85e0ba;
-  --brand-button: #006338;
-  --brand-button-hover: #00733f;
-  --brand-button-border: #138252;
-  --brand-soft: rgb(62 207 142 / 0.1);
-  --brand-border: #006239;
+  --brand: #1a7f37;
+  --brand-link: #1a7f37;
+  --brand-soft: #edf7f0;
+  --brand-border: #b9e2c4;
 
-  /* Status */
-  --danger: #f16a50;
-  --danger-text: #f5a594;
-  --danger-soft: rgb(229 77 46 / 0.12);
-  --danger-border: #5c2a20;
-  --warning: #f2af48;
-  --warning-soft: rgb(242 175 72 / 0.1);
-  --warning-border: #5c3d0a;
+  --danger: #cf222e;
+  --danger-text: #a40e26;
+  --danger-soft: #fff1f1;
+  --danger-border: #f8c9cc;
+  --warning: #9a6700;
+  --warning-soft: #fff8e1;
+  --warning-border: #f1d98b;
 
-  /* Code */
-  --code-string: #f9c789;
-  --code-keyword: #c792ea;
-  --code-info: #72c7ba;
+  --code-string: #8a4600;
+  --code-keyword: #7c3aed;
+  --code-info: #0b63c4;
 
   /* shadcn primitive aliases */
-  --card: var(--surface-100);
+  --card: var(--background);
   --card-foreground: var(--foreground);
   --popover: var(--overlay);
   --popover-foreground: var(--foreground);
-  --primary: var(--brand-button);
-  --primary-foreground: var(--foreground);
-  --secondary: var(--surface-300);
+  --primary: var(--foreground);
+  --primary-foreground: var(--background);
+  --secondary: var(--surface-200);
   --secondary-foreground: var(--foreground);
   --muted: var(--surface-200);
   --muted-foreground: var(--foreground-lighter);
   --accent: var(--selection);
   --accent-foreground: var(--foreground);
-  --destructive: #e54d2e;
-  --destructive-foreground: var(--foreground);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
   --input: var(--border-strong);
-  --ring: var(--brand);
+  --ring: var(--foreground);
   --radius: 6px;
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 @theme inline {
   --color-background: var(--background);
-  --color-surface-75: var(--surface-75);
   --color-surface-100: var(--surface-100);
   --color-surface-200: var(--surface-200);
   --color-surface-300: var(--surface-300);
@@ -98,9 +86,6 @@
 
   --color-brand: var(--brand);
   --color-brand-link: var(--brand-link);
-  --color-brand-button: var(--brand-button);
-  --color-brand-button-hover: var(--brand-button-hover);
-  --color-brand-button-border: var(--brand-button-border);
   --color-brand-soft: var(--brand-soft);
   --color-brand-border: var(--brand-border);
 
@@ -133,13 +118,13 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: var(--font-source-code), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 6px;
-  --radius-xl: 8px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
 }
 
 @layer base {
@@ -152,13 +137,13 @@
   body {
     @apply bg-background text-foreground;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.55;
   }
   ::selection {
-    background: rgb(62 207 142 / 0.25);
+    background: #dbeafe;
   }
   :focus-visible {
-    outline: 2px solid var(--brand);
+    outline: 2px solid var(--foreground);
     outline-offset: 2px;
   }
 }

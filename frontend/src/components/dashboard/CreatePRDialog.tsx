@@ -205,7 +205,7 @@ export function CreatePRDialog({
             </p>
             <p>
               To have GreenBranch open pull requests for you,{" "}
-              <Link href="/signin?callbackUrl=/dashboard" className="text-foreground underline underline-offset-4">
+              <Link href="/signin" className="text-foreground underline underline-offset-4">
                 sign in with GitHub
               </Link>{" "}
               before your next run.

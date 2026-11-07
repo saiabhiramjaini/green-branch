@@ -2,35 +2,14 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 /*
- * TEMPORARY BRAND PLACEHOLDERS.
+ * TEMPORARY BRAND PLACEHOLDER.
  * The real logo is being commissioned from a designer. When it arrives, replace
- * LogoMark and Wordmark here; every screen uses these two components.
+ * Wordmark here (and src/app/icon.svg); every page uses this component.
  */
-
-/** Square mark for tight spots (icon rail, favicon-sized slots). */
-export function LogoMark({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border-strong bg-surface-300 text-[12px] font-semibold text-foreground",
-        className
-      )}
-    >
-      G
-    </span>
-  );
-}
-
-/** The product name as text. */
 export function Wordmark({ className }: { className?: string }) {
-  return <span className={cn("text-[15px] font-medium tracking-tight text-foreground", className)}>GreenBranch</span>;
-}
-
-export function HomeLink({ className }: { className?: string }) {
   return (
-    <Link href="/" className={cn("inline-flex items-center rounded-md", className)} aria-label="GreenBranch home">
-      <Wordmark />
+    <Link href="/" className={cn("text-[15px] font-semibold tracking-tight text-foreground", className)}>
+      GreenBranch
     </Link>
   );
 }
