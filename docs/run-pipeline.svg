@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1680 830" role="img" aria-label="How one GreenBranch run works. The frontend registers the run and gets a single-use run_id, the browser opens the WebSocket, and server-runner clones the repository. Then a loop runs the tests, verifies the previous edit (keeping it if the error it targeted is gone, reverting it otherwise), stops when every test passes or the test-run limit is reached, and otherwise picks a failing test, finds its code, asks Groq for SEARCH/REPLACE edits and applies them before the next test run. Finally the kept edits are committed and pushed to a new branch, a pull request is opened, and the session is deleted. Each stage streams events to the browser." font-family="'IBM Plex Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" fill="#1f2328">
+  <defs>
+    <marker id="ah-ink" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L10,5 L0,9.5 L2.6,5 z" fill="#1f2328"/></marker>
+    <marker id="ah-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L10,5 L0,9.5 L2.6,5 z" fill="#0969da"/></marker>
+    <marker id="ah-grey" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L10,5 L0,9.5 L2.6,5 z" fill="#8c959f"/></marker>
+    <marker id="ah-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L10,5 L0,9.5 L2.6,5 z" fill="#1a7f37"/></marker>
+    <marker id="ah-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L10,5 L0,9.5 L2.6,5 z" fill="#cf222e"/></marker>
+    <marker id="ah-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0.5 L10,5 L0,9.5 L2.6,5 z" fill="#8250df"/></marker>
+  </defs>
+
+  <rect width="1680" height="830" fill="#ffffff"/>
+  <text x="40" y="70" font-size="10" font-weight="600" letter-spacing="1" fill="#59636e">1 · START</text>
+  <text x="390" y="70" font-size="10" font-weight="600" letter-spacing="1" fill="#59636e">2 · TEST / FIX LOOP</text>
+  <text x="1340" y="70" font-size="10" font-weight="600" letter-spacing="1" fill="#59636e">3 · FINISH</text>
+
+  <!-- Start -->
+  <rect x="40" y="96" width="300" height="112" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="54" y="120" font-size="13.5" font-weight="600">Register the run</text>
+  <text x="54" y="142" font-family="'IBM Plex Mono', Menlo, Consolas, monospace" font-size="11.5">POST /api/runs → /agent/runs</text>
+  <text x="54" y="161" font-size="11.5" fill="#59636e">Vercel adds the API key and token</text>
+  <text x="54" y="180" font-size="11.5" fill="#59636e">returns a run_id, valid 120 s</text>
+  <path d="M190,208 V232" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <rect x="40" y="236" width="300" height="112" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="54" y="260" font-size="13.5" font-weight="600">Open the stream</text>
+  <text x="54" y="282" font-family="'IBM Plex Mono', Menlo, Consolas, monospace" font-size="11.5">WSS /agent/ws?run_id=…</text>
+  <text x="54" y="301" font-size="11.5" fill="#59636e">the run_id works only once</text>
+  <text x="54" y="320" font-size="11.5" fill="#59636e">events flow until the run ends</text>
+  <path d="M190,348 V372" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <rect x="40" y="376" width="300" height="112" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="54" y="400" font-size="13.5" font-weight="600">Clone</text>
+  <text x="54" y="422" font-family="'IBM Plex Mono', Menlo, Consolas, monospace" font-size="11.5">POST /sessions</text>
+  <text x="54" y="441" font-size="11.5" fill="#59636e">default branch, fresh session</text>
+  <text x="54" y="460" font-size="11.5" fill="#59636e">kept in Redis for 2 h</text>
+  <path d="M190,488 V512" fill="none" stroke="#cf222e" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ah-red)"/>
+  <rect x="40" y="516" width="300" height="98" rx="8" fill="#ffebe9" stroke="#cf222e" stroke-width="1.5"/>
+  <text x="54" y="540" font-size="13.5" font-weight="600" fill="#cf222e">Stops with an error event</text>
+  <text x="54" y="562" font-size="11.5" fill="#59636e">clone failed · no test files found</text>
+  <text x="54" y="581" font-size="11.5" fill="#59636e">the test command failed before</text>
+  <text x="54" y="600" font-size="11.5" fill="#59636e">any test ran</text>
+  <path d="M340,432 H366 V270 H416" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+
+  <!-- Test / fix loop -->
+  <rect x="390" y="96" width="900" height="540" rx="14" fill="#ffffff" stroke="#1f2328" stroke-width="2"/>
+  <text x="420" y="134" font-size="20" font-weight="700">Test / fix loop</text>
+  <text x="420" y="158" font-size="12" fill="#59636e">up to N test runs per run · N is set on the new-run form (default 5, max 10)</text>
+  <rect x="420" y="210" width="210" height="120" rx="8" fill="#eef5ff" stroke="#0969da" stroke-width="1.5"/>
+  <text x="434" y="234" font-size="13.5" font-weight="600">Run the tests</text>
+  <text x="434" y="256" font-family="'IBM Plex Mono', Menlo, Consolas, monospace" font-size="11.5">POST /execute/stream</text>
+  <text x="434" y="275" font-size="11.5" fill="#59636e">the first run also installs</text>
+  <text x="434" y="294" font-size="11.5" fill="#59636e">→ iteration event</text>
+  <path d="M630,270 H666" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <rect x="670" y="210" width="360" height="120" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="684" y="234" font-size="13.5" font-weight="600">Verify the last edit</text>
+  <text x="684" y="256" font-size="11.5" fill="#59636e">Is the error it targeted gone now?</text>
+  <text x="684" y="275" font-size="11.5" font-weight="600" fill="#1a7f37">yes  keep it · Groq explains the fix</text>
+  <text x="684" y="294" font-size="11.5" font-weight="600" fill="#cf222e">no   revert the file</text>
+  <text x="684" y="313" font-size="11.5" fill="#59636e">→ fix event, kept or reverted</text>
+  <path d="M1030,270 H1066" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <path d="M1165,222 L1260,270 L1165,318 L1070,270 Z" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5"/>
+  <text x="1165" y="267" text-anchor="middle" font-size="13" font-weight="600">All tests</text>
+  <text x="1165" y="284" text-anchor="middle" font-size="12" fill="#59636e">passing?</text>
+  <path d="M1260,270 H1336" fill="none" stroke="#1a7f37" stroke-width="2" marker-end="url(#ah-green)"/>
+  <text x="1318" y="260" text-anchor="middle" font-size="12" font-weight="600" fill="#1a7f37">yes</text>
+  <path d="M1165,318 V458" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <text x="1175" y="392" font-size="12" font-weight="600">no</text>
+  <path d="M1165,462 L1260,510 L1165,558 L1070,510 Z" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5"/>
+  <text x="1165" y="507" text-anchor="middle" font-size="13" font-weight="600">N test runs</text>
+  <text x="1165" y="524" text-anchor="middle" font-size="12" fill="#59636e">used?</text>
+  <path d="M1260,510 H1300 V312 H1336" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <text x="1278" y="500" text-anchor="middle" font-size="12" font-weight="600">yes</text>
+  <path d="M1070,510 H1044" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <text x="1057" y="528" text-anchor="middle" font-size="12" font-weight="600">no</text>
+  <rect x="840" y="450" width="200" height="120" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="854" y="474" font-size="13.5" font-weight="600">Pick a failing test</text>
+  <text x="854" y="496" font-size="11.5" fill="#59636e">at most 2 tries per error</text>
+  <text x="854" y="515" font-size="11.5" fill="#59636e">then find its code: follow</text>
+  <text x="854" y="534" font-size="11.5" fill="#59636e">the test&#x27;s imports and name</text>
+  <path d="M840,510 H814" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <rect x="630" y="450" width="180" height="120" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="644" y="474" font-size="13.5" font-weight="600">Ask Groq</text>
+  <text x="644" y="496" font-family="'IBM Plex Mono', Menlo, Consolas, monospace" font-size="11.5">gpt-oss-120b</text>
+  <text x="644" y="515" font-size="11.5" fill="#59636e">error, test output and</text>
+  <text x="644" y="534" font-size="11.5" fill="#59636e">files in · SEARCH/</text>
+  <text x="644" y="553" font-size="11.5" fill="#59636e">REPLACE blocks out</text>
+  <path d="M630,510 H604" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <rect x="420" y="450" width="180" height="120" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="434" y="474" font-size="13.5" font-weight="600">Apply the edits</text>
+  <text x="434" y="496" font-size="11.5" fill="#59636e">each block must match</text>
+  <text x="434" y="515" font-size="11.5" fill="#59636e">the file exactly once;</text>
+  <text x="434" y="534" font-size="11.5" fill="#59636e">test assertions can&#x27;t</text>
+  <text x="434" y="553" font-size="11.5" fill="#59636e">be edited</text>
+  <path d="M510,450 V334" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <text x="520" y="396" font-size="11.5">next test run</text>
+
+  <!-- Finish -->
+  <rect x="1340" y="200" width="300" height="136" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="1354" y="224" font-size="13.5" font-weight="600">Commit and push</text>
+  <text x="1354" y="246" font-family="'IBM Plex Mono', Menlo, Consolas, monospace" font-size="11.5">POST /commit</text>
+  <text x="1354" y="265" font-size="11.5" fill="#59636e">one commit per kept file to</text>
+  <text x="1354" y="284" font-family="'IBM Plex Mono', Menlo, Consolas, monospace" font-size="11.5">greenbranch/fix-&lt;repo&gt;-&lt;time&gt;</text>
+  <text x="1354" y="303" font-size="11.5" fill="#59636e">nothing kept → no branch</text>
+  <path d="M1490,336 V368" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <rect x="1340" y="372" width="300" height="96" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="1354" y="396" font-size="13.5" font-weight="600">Open the pull request</text>
+  <text x="1354" y="418" font-size="11.5" fill="#59636e">with the user&#x27;s GitHub token</text>
+  <text x="1354" y="437" font-size="11.5" fill="#59636e">→ pr_created event</text>
+  <path d="M1490,468 V500" fill="none" stroke="#1f2328" stroke-width="2" marker-end="url(#ah-ink)"/>
+  <rect x="1340" y="504" width="300" height="112" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
+  <text x="1354" y="528" font-size="13.5" font-weight="600">Finish</text>
+  <text x="1354" y="550" font-size="11.5" fill="#59636e">→ complete event: result, fixes,</text>
+  <text x="1354" y="569" font-size="11.5" fill="#59636e">branch and time</text>
+  <text x="1354" y="588" font-size="11.5" fill="#59636e">the session and clone are deleted</text>
+
+  <!-- Events -->
+  <rect x="40" y="672" width="1600" height="116" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+  <text x="60" y="700" font-size="10" font-weight="600" letter-spacing="1" fill="#59636e">WHAT THE BROWSER RECEIVES ON THE WEBSOCKET</text>
+  <text x="60" y="728" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">step</tspan><tspan fill="#59636e">  cloning</tspan></text>
+  <text x="60" y="748" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">log</tspan><tspan fill="#59636e">  git clone …</tspan></text>
+  <text x="60" y="768" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#cf222e">error</tspan><tspan fill="#59636e">  stops the run</tspan></text>
+  <text x="420" y="728" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">step</tspan><tspan fill="#59636e">  running_tests · analyzing · fixing · verifying</tspan></text>
+  <text x="420" y="748" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">log</tspan><tspan fill="#59636e">  every line of install and test output</tspan></text>
+  <text x="1340" y="728" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">step</tspan><tspan fill="#59636e">  committing</tspan></text>
+  <text x="1340" y="748" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">pr_created</tspan><tspan fill="#59636e">  the PR&#x27;s URL</tspan></text>
+  <text x="1340" y="768" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">complete</tspan><tspan fill="#59636e">  the final result</tspan></text>
+  <text x="420" y="768" font-size="12"><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">iteration</tspan><tspan fill="#59636e">  one per test run   ·   </tspan><tspan font-family="'IBM Plex Mono', Menlo, Consolas, monospace" fill="#1a7f37">fix</tspan><tspan fill="#59636e">  one per verified edit, kept or reverted</tspan></text>
+</svg>

@@ -1,404 +1,165 @@
-# GreenBranch
+# GreenBranch - Automated Test Repair for GitHub Repositories
 
-> **Autonomous DevOps Agent** — Automatically detect, analyze, and fix failing CI/CD pipelines using AI
+## Overview
 
----
+GreenBranch fixes failing test suites. Point it at a GitHub repository and it:
+- Clones the repository and runs your own install and test commands
+- Picks a failing test, finds the code behind it, and asks an LLM for a small edit
+- Re-runs the tests and keeps the edit only if the error it targeted is gone; otherwise it reverts the file
+- Repeats until every test passes or the test-run limit is reached
+- Pushes the kept edits to a new `greenbranch/fix-…` branch and opens a pull request for you to review
 
-## 📋 Table of Contents
+Your default branch is never pushed to, and every step streams to the browser as it happens.
 
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [Tech Stack](#tech-stack)
-- [Prerequisites](#prerequisites)
-- [Installation & Setup](#installation--setup)
-- [Environment Configuration](#environment-configuration)
-- [Running the Application](#running-the-application)
-- [API Endpoints](#api-endpoints)
-- [Workflow & Pipeline](#workflow--pipeline)
-- [Deployment (Android phone)](#deployment-android-phone)
+Live at **[greenbranch.abhiramtech.in](https://greenbranch.abhiramtech.in)**.
 
----
+## Features
 
-## 🎯 Overview
+**Running a fix:**
+- Pick one of your repositories after signing in with GitHub, or paste any public repository URL without an account
+- Node.js and Python projects; the install command, test command and number of test runs are editable per run
+- A live view of every step: each test run, each edit (kept or reverted), the commit and the pull request
+- For every kept edit: the failing test, the root cause, what changed and the commit message
+- The full log, searchable, with copy and download
 
-**GreenBranch** is an intelligent DevOps assistant that transforms broken CI/CD pipelines into passing ones automatically. It connects to your GitHub repositories, runs your test suite, analyzes failures using advanced LLMs, and applies targeted fixes—all without human intervention.
+**Safety:**
+- Edits are verified by the next test run before they are kept
+- Edits to test assertions are rejected, so a test can't be "fixed" by weakening it
+- The GitHub token and the backends' API keys never reach the browser; the browser only holds a single-use `run_id`
+- Runs are saved in your browser, so the history needs no account or database
 
-### Key Benefits
-- **🤖 Autonomous** — Runs the complete fix pipeline without manual intervention
-- **⚡ Fast** — Iteratively fixes code until tests pass
-- **🧠 Intelligent** — Uses LLMs (Groq) to understand and fix issues
-- **📊 Detailed Reports** — Comprehensive logs and fix tracking
-- **🔄 CI/CD Friendly** — Seamless GitHub integration
-- **📈 Iterative Learning** — Improves fixes with each iteration
-
----
-
-## ✨ Features
-
-### Core Capabilities
-
-| Feature | Description |
-|---------|-------------|
-| **GitHub Integration** | Connect and authenticate with GitHub repositories |
-| **Automated Testing** | Run your project's test suite automatically |
-| **Issue Detection** | Parse and understand test failures |
-| **AI-Powered Fixes** | Generate fixes using LLM analysis |
-| **Iterative Resolution** | Re-run tests until pipeline passes |
-| **Branch Management** | Create feature branches with fixes |
-| **Pull Requests** | Auto-create PRs with detailed fix information |
-| **Real-time Streaming** | WebSocket support for live progress updates |
-| **Comprehensive Logging** | Detailed logs of all operations |
-
----
-
-## 🏗️ Architecture
-
-GreenBranch is a **microservices-based** system with three main components:
-
-![Architecture Diagram](https://github.com/user-attachments/assets/400c4830-450b-4181-8798-b43f0639ae2a)
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      FRONTEND (Next.js)                      │
-│  • User Dashboard & Repository Management                   │
-│  • Real-time Progress Streaming                             │
-│  • GitHub OAuth Authentication                              │
-│  • CLI Tool Integration                                     │
-└──────────┬──────────────────────────────┬───────────────────┘
-           │                              │
-           │ HTTP/WebSocket               │ HTTP
-           │                              │
-    ┌──────▼──────────┐           ┌──────────▼────────────┐
-    │   SERVER-AI     │           │   SERVER-RUNNER      │
-    │   (FastAPI)     │           │    (FastAPI)         │
-    ├─────────────────┤           ├──────────────────────┤
-    │ • Heal loop     │           │ • Executor (local    │
-    │                 │           │   or Docker)         │
-    │ • Groq LLM      │           │ • Test Execution     │
-    │ • Fix Logic     │           │ • Git Operations     │
-    │ • State Mgmt    │           │ • Redis Sessions     │
-    │ • PR Creation   │           │ • File Management    │
-    └────────┬────────┘           └──────────┬───────────┘
-             │                               │
-             └───────────┬───────────────────┘
-                         │
-              ┌──────────▼──────────┐
-              │  External Services  │
-              ├─────────────────────┤
-              │ • GitHub API        │
-              │ • Cloudflare Tunnel │
-              │ • Groq API          │
-              │ • Redis             │
-              └─────────────────────┘
-```
-
-### Service Responsibilities
-
-**Frontend (Next.js - Vercel)**
-- Web interface for users
-- Dashboard for repository management
-- Real-time progress visualization
-- GitHub OAuth authentication
-- WebSocket connection for streaming logs
-
-**Server-AI (FastAPI)**
-- Runs the healing loop: test → fix → verify, reverting fixes that don't work
-- Analyzes test failures using LLM
-- Generates code fixes
-- Manages PR creation
-- Handles agent run logic
-
-**Server-Runner (FastAPI)**
-- Runs install/test commands — directly on the host (`local` executor, used on the phone)
-  or inside Docker containers (`docker` executor)
-- Manages Git repository cloning and operations
-- Runs test suites
-- Handles file operations
-- Manages session storage with Redis
-
----
-
-## 📁 Project Structure
-
-```
-green-branch/
-├── frontend/                          # Next.js Web Application
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── layout.tsx            # Root layout with providers
-│   │   │   ├── page.tsx              # Landing page
-│   │   │   ├── api/                  # API routes (auth, GitHub)
-│   │   │   ├── dashboard/            # Dashboard page
-│   │   │   ├── signin/               # Sign-in page
-│   │   │   └── debug/                # Debug utilities page
-│   │   ├── components/
-│   │   │   ├── header.tsx            # Header component
-│   │   │   ├── login.tsx             # Login component
-│   │   │   ├── dashboard/            # Dashboard sub-components
-│   │   │   ├── theme/                # Theme provider
-│   │   │   └── ui/                   # Reusable UI components
-│   │   ├── lib/
-│   │   │   ├── auth-options.ts       # NextAuth configuration
-│   │   │   └── utils.ts              # Utility functions
-│   │   └── types/
-│   │       └── next-auth.d.ts        # TypeScript definitions
-│   ├── public/                        # Static assets
-│   ├── package.json                  # Dependencies & scripts
-│   ├── tsconfig.json                 # TypeScript config
-│   ├── next.config.ts                # Next.js config
-│   └── tailwind.config.ts            # Tailwind CSS config
-│
-├── server-ai/                         # AI Healing Pipeline
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── app.py                # FastAPI app initialization
-│   │   │   ├── api.py                # Main API module
-│   │   │   ├── config.py             # Configuration management
-│   │   │   └── handlers.py           # Error handlers
-│   │   ├── endpoints/
-│   │   │   ├── agent.py              # Agent run endpoint
-│   │   │   ├── agent_ws.py           # WebSocket endpoint
-│   │   │   ├── pr.py                 # PR creation endpoint
-│   │   │   └── health.py             # Health check endpoint
-│   │   ├── llm/
-│   │   │   └── llm_client.py         # Groq LLM client
-│   │   ├── runner/
-│   │   │   ├── streaming_runner.py   # The pipeline: clone → heal loop → commit → PR
-│   │   │   └── fix_engine.py         # One fix: find the code, ask the LLM for edits, apply
-│   │   ├── services/
-│   │   │   └── runner_client.py      # server-runner client
-│   │   ├── models/
-│   │   │   └── agent.py              # Data models
-│   │   └── core/
-│   │       └── exceptions.py         # Custom exceptions
-│   ├── pyproject.toml               # Project config & dependencies
-│   └── Dockerfile                   # Docker image config
-│
-├── server-runner/                     # Repo cloning & test execution
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── app.py               # FastAPI app initialization
-│   │   │   ├── api.py               # Main API module
-│   │   │   ├── config.py            # Configuration management
-│   │   │   └── handlers.py          # Error handlers
-│   │   ├── endpoints/
-│   │   │   ├── execution.py         # Test execution endpoint
-│   │   │   ├── streaming_execution.py # Streaming execution
-│   │   │   ├── session.py           # Session management endpoint
-│   │   │   ├── fix.py               # Fix endpoint
-│   │   │   ├── files.py             # File operation endpoint
-│   │   │   └── health.py            # Health check endpoint
-│   │   ├── services/
-│   │   │   ├── execution_service.py # Install/test commands
-│   │   │   ├── executors.py         # Where commands run: local or Docker
-│   │   │   ├── git_service.py       # Git operations
-│   │   │   ├── test_runner.py       # Test execution logic
-│   │   │   └── session_store.py     # Redis session storage
-│   │   ├── models/
-│   │   │   ├── execution.py         # Execution models
-│   │   │   ├── fix.py               # Fix models
-│   │   │   └── session.py           # Session models
-│   │   ├── core/
-│   │   │   ├── docker_manager.py    # Docker client (docker executor)
-│   │   │   └── exceptions.py        # Custom exceptions
-│   │   └── utils/
-│   │       └── parsers.py           # Utility parsers
-│   ├── pyproject.toml              # Project config & dependencies
-│   └── Dockerfile                  # Docker image config
-│
-├── deploy/phone/                    # Running the backends on an Android phone
-│   ├── README.md                    # Step-by-step guide
-│   ├── setup.sh / setup-debian.sh   # One-time setup (Termux, then Debian)
-│   ├── start.sh                     # Start everything (also the boot script)
-│   ├── ecosystem.config.js          # PM2 processes
-│   └── deploy.sh                    # Deploy a commit, roll back if unhealthy
-│
-└── .github/workflows/               # phone-deploy.yaml, vercel-deploy.yaml
-```
-
----
-
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Frontend
-- **Framework:** Next.js 16.1.6
-- **Language:** TypeScript 5
-- **UI Components:** Radix UI, shadcn/ui
-- **Styling:** Tailwind CSS 4
-- **Authentication:** NextAuth.js 4.24
-- **HTTP Client:** Axios
-- **Animations:** Framer Motion
+- **Next.js 16** (React 19, App Router, server routes)
+- **TypeScript**
+- **Tailwind CSS 4** and **shadcn/ui** (Radix UI)
+- **NextAuth.js** (GitHub OAuth)
 
-### Backend - Server-AI
-- **Framework:** FastAPI 0.129.0
-- **Language:** Python 3.11+
-- **LLM Provider:** Groq API
-- **Server:** Uvicorn
-- **Config:** Pydantic Settings
-- **HTTP Client:** httpx
-
-### Backend - Server-Runner
-- **Framework:** FastAPI 0.129.0
-- **Language:** Python 3.11+
-- **Execution:** local subprocesses, or Docker containers
-- **Caching:** Redis 5.0
-- **Version Control:** GitPython
-- **Server:** Uvicorn
-- **Config:** Pydantic Settings
+### Backend
+- **server-ai**: Python, **FastAPI**, Uvicorn. Runs the test/fix loop and streams it over a WebSocket
+- **server-runner**: Python, **FastAPI**, GitPython. Clones repositories, runs install and test commands, writes files, commits and pushes
+- **Groq API** (`openai/gpt-oss-120b`) for the edits
+- **Redis** for server-runner's sessions
+- **uv** for Python dependencies
 
 ### Infrastructure
-- **Frontend hosting:** Vercel
-- **Backend hosting:** an Android phone — Termux, proot-distro Debian, PM2
-- **Public access:** Cloudflare Tunnel (HTTPS, WebSocket, and SSH for deploys)
-- **CI/CD:** GitHub Actions
-- **Session Storage:** Redis
-- **CORS:** FastAPI CORS Middleware
-- **VCS:** Git
+- **Vercel** (frontend)
+- **Android phone, Termux + proot-distro Debian** (both backends)
+- **PM2** (keeps the backends, Redis and the tunnel running)
+- **Cloudflare Tunnel + Access** (public URL for server-ai, and authenticated SSH for deploys)
+- **GitHub Actions** (CI/CD)
+- **Docker** (optional executor containers for server-runner, and images for other hosts)
 
----
+## Architecture
 
-## 📦 Prerequisites
+![GreenBranch architecture: the browser loads the Next.js frontend from Vercel, whose server routes register runs on server-ai; the browser then opens a WebSocket to server-ai, which drives server-runner over HTTP, asks Groq for edits, and opens pull requests on GitHub, while server-runner keeps sessions in Redis and clones and pushes with git](docs/architecture.svg)
 
-### System Requirements
+1. **Browser → Vercel**: the pages and the Next.js server routes. `/api/runs` registers a run on server-ai with the API key and the user's GitHub token, and returns only a single-use `run_id` (valid for 120 seconds)
+2. **Browser → server-ai (WebSocket)**: the browser opens `/api/v1/agent/ws?run_id=…` and receives the run as events: `log`, `step`, `iteration`, `fix`, `pr_created`, `complete` and `error`
+3. **server-ai → server-runner (HTTP + API key)**: create a session (clone), run install and tests (streamed back as server-sent events), write fixed files, and commit and push them
+4. **server-ai → Groq**: one call per fix attempt, answered with `SEARCH/REPLACE` edit blocks; one more to explain each kept fix
+5. **server-ai → GitHub**: opens the pull request with the user's token. `/api/pr` on the frontend does the same when you open one by hand
+6. **server-runner → Redis**: sessions expire after 2 hours, and a sweep deletes the clones of expired sessions
 
-- **OS:** Windows, macOS, or Linux
-- **Docker:** only for Server-Runner's `docker` executor
-- **Node.js:** v18+ (for frontend development)
-- **Python:** v3.11+ (for backend services)
-- **Git:** v2.30+ (for version control)
-- **Redis:** v5.0+ (for session management)
+### How a run works
 
-### External Services
+![One run: register and clone; then a loop that runs the tests, verifies the previous edit (kept if its error is gone, reverted otherwise), stops when every test passes or the limit is reached, and otherwise picks a failing test, asks Groq for edits and applies them; finally the kept edits are committed and pushed, a pull request is opened and the session is deleted](docs/run-pipeline.svg)
 
-1. **GitHub OAuth Application**
-   - Create a GitHub OAuth app for authentication
-   - Required: Client ID and Client Secret
-   - [Create GitHub OAuth App](https://github.com/settings/developers)
+`server-ai/src/runner/fix_engine.py` handles one failing test at a time:
 
-2. **Groq API Key**
-   - Sign up for Groq LLM access
-   - [Get Groq API Key](https://console.groq.com)
+1. **Find the code.** If the failure is in a test file, follow the test's imports (JS/TS relative imports, Python `from x import y`) and its name (`test_calc.py` → `calc.py`) to the implementation it exercises.
+2. **Ask for edits, not files.** The LLM sees the error, the test output and the files, and answers with small `SEARCH/REPLACE` blocks. Only changed lines come back, so long files can be fixed. An answer cut off at the token limit is rejected.
+3. **Apply exactly.** Each block must match the file exactly once (trailing whitespace and CRLF line endings are tolerated). Edits that don't apply, or that change a test's assertions instead of the code, count as a failed attempt.
+4. **Verify.** The next test run decides: if the error is gone the fix is kept and explained, otherwise the file is reverted. Each error gets at most two attempts.
 
-### Required Tools
+## Setup & Installation
 
-```bash
-# Verify installations
-node --version        # v18 or higher
-npm --version         # 9 or higher
-python --version      # 3.11 or higher
-docker --version      # 7.0 or higher
-redis-cli --version   # 5.0 or higher
-git --version         # 2.30 or higher
-```
+### Prerequisites
+- Node.js 20+ (frontend)
+- Python 3.11+ and [uv](https://docs.astral.sh/uv/) (backends)
+- Redis 5+
+- Git 2.30+
+- Docker, only for server-runner's `docker` executor
+- A [GitHub OAuth app](https://github.com/settings/developers) (scopes `repo workflow read:user`) and a [Groq API key](https://console.groq.com)
 
----
+### Local Development Setup
 
-## 🚀 Installation & Setup
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/saiabhiramjaini/green-branch.git
+   cd green-branch
+   ```
 
-### Step 1: Clone Repository
+2. **Start Redis**:
+   ```bash
+   docker run -d --name greenbranch-redis -p 6379:6379 redis:7-alpine   # or: redis-server
+   ```
 
-```bash
-git clone https://github.com/saiabhiramjaini/green-branch.git
-cd green-branch
-```
+3. **server-runner** (clones and runs tests):
+   ```bash
+   cd server-runner
+   cat > .env << EOF
+   RUNNER_API_KEY=dev-runner-key
+   RUNNER_REDIS_URL=redis://localhost:6379/0
+   RUNNER_REPOS_BASE_PATH=/tmp/repos
+   RUNNER_EXECUTOR=local
+   RUNNER_ALLOWED_REPO_OWNERS=your-github-username
+   EOF
+   uv sync
+   uv run python -m src.app.api        # http://localhost:8001/docs
+   ```
 
-### Step 2: Frontend Setup
+4. **server-ai** (the test/fix loop):
+   ```bash
+   cd server-ai
+   cat > .env << EOF
+   SERVER_API_KEY=dev-server-key
+   SERVER_RUNNER_URL=http://localhost:8001
+   SERVER_RUNNER_API_KEY=dev-runner-key
+   SERVER_GROQ_API_KEY=your_groq_api_key
+   EOF
+   uv sync
+   uv run python -m src.app.api        # http://localhost:8000/docs
+   ```
 
-```bash
-cd frontend
-npm install
+5. **Frontend**:
+   ```bash
+   cd frontend
+   cat > .env.local << EOF
+   NEXTAUTH_URL=http://localhost:3000
+   NEXTAUTH_SECRET=$(openssl rand -base64 32)
+   GITHUB_ID=your_github_oauth_client_id
+   GITHUB_SECRET=your_github_oauth_client_secret
+   AGENT_SERVER_URL=http://localhost:8000
+   AGENT_SERVER_API_KEY=dev-server-key
+   NEXT_PUBLIC_SERVER_WS_URL=ws://localhost:8000/api/v1
+   EOF
+   npm install
+   npm run dev                          # http://localhost:3000
+   ```
 
-# Create .env.local (see Environment Configuration below)
-cat > .env.local << EOF
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=$(openssl rand -base64 32)
-GITHUB_ID=your_github_oauth_client_id
-GITHUB_SECRET=your_github_oauth_client_secret
-RUNNER_URL=http://localhost:8001
-RUNNER_API_KEY=dev-runner-key
-AGENT_SERVER_URL=http://localhost:8000
-AGENT_SERVER_API_KEY=dev-server-key
-NEXT_PUBLIC_SERVER_WS_URL=ws://localhost:8000/api/v1
-EOF
+6. **Check the backends**:
+   ```bash
+   curl localhost:8000/api/v1/health
+   curl localhost:8001/api/v1/health/executor    # shows the executor and the tools it found
+   ```
 
-npm run dev
-```
+### Executors
 
-### Step 3: Server-AI Setup
+server-runner runs each repository's install and test commands with one of two executors:
 
-```bash
-cd server-ai
+- **`local`**: plain processes on the same machine, using its own `node`, `npm` and `python3`. There is no sandbox, so it only clones repositories whose owner is listed in `RUNNER_ALLOWED_REPO_OWNERS`. It is the simplest for development, and it is what the phone uses.
+- **`docker`** (the default): inside two long-running executor containers, isolated from the host. Use it if GreenBranch should fix repositories from anyone. Both containers must mount `RUNNER_REPOS_BASE_PATH` at `/repos`:
+  ```bash
+  mkdir -p /tmp/repos
+  docker run -d --name python-executor -v /tmp/repos:/repos python:3.11 sleep infinity
+  docker run -d --name node-executor   -v /tmp/repos:/repos node:22     sleep infinity
+  ```
 
-cat > .env << EOF
-SERVER_API_KEY=dev-server-key
-SERVER_RUNNER_URL=http://localhost:8001
-SERVER_RUNNER_API_KEY=dev-runner-key
-SERVER_GROQ_API_KEY=your_groq_api_key
-EOF
+## Environment Configuration
 
-uv sync
-uv run python -m src.app.api
-```
-
-### Step 4: Server-Runner Setup
-
-Server-Runner runs each repo's install and test commands with one of two executors:
-
-- **`local`** — plain processes on this machine, using its own `node`/`npm`/`python3`.
-  There is no sandbox, so it only clones repos whose owner is listed in
-  `RUNNER_ALLOWED_REPO_OWNERS`. Simplest for development; it's what the phone uses.
-- **`docker`** (default) — inside two long-running executor containers, isolated from
-  the host. Use it if GreenBranch should fix repos from anyone.
-
-```bash
-cd server-runner
-
-# local executor
-cat > .env << EOF
-RUNNER_API_KEY=dev-runner-key
-RUNNER_REDIS_URL=redis://localhost:6379/0
-RUNNER_REPOS_BASE_PATH=/tmp/repos
-RUNNER_EXECUTOR=local
-RUNNER_ALLOWED_REPO_OWNERS=your-github-username
-EOF
-
-uv sync
-uv run python -m src.app.api
-```
-
-For the `docker` executor, leave out the last two lines and start the executor
-containers; both must mount `RUNNER_REPOS_BASE_PATH` at `/repos`:
-
-```bash
-mkdir -p /tmp/repos
-docker run -d --name python-executor -v /tmp/repos:/repos python:3.11 sleep infinity
-docker run -d --name node-executor   -v /tmp/repos:/repos node:22     sleep infinity
-```
-
-### Step 5: Redis Setup
-
-```bash
-# If using Docker for Redis:
-docker run -d \
-  --name greenbranch-redis \
-  -p 6379:6379 \
-  redis:7-alpine
-
-# Or if Redis is installed locally, start it:
-redis-server
-```
-
----
-
-## ⚙️ Environment Configuration
-
-Both backends **require an API key** (`X-API-Key` header). If none is configured they
-reject every request (503), unless `*_DEBUG=true` is set for local development.
-The browser never calls the backends directly over HTTP: the Next.js server routes
-(`/api/sessions`, `/api/runs`, `/api/pr`) attach the API keys and the user's GitHub
-token server-side. The browser only opens the WebSocket, using a single-use `run_id`.
+Both backends **require an API key** (`X-API-Key` header) and reject every request without one (503), unless `*_DEBUG=true` is set for local development. The browser never calls the backends over HTTP: the Next.js server routes attach the API key and the user's GitHub token, and the browser only opens the WebSocket with a single-use `run_id`.
 
 ### Frontend (`frontend/.env.local`, Vercel project env)
 
@@ -406,29 +167,28 @@ token server-side. The browser only opens the WebSocket, using a single-use `run
 |----------|-------------|
 | `NEXTAUTH_URL` / `NEXTAUTH_SECRET` | NextAuth config |
 | `GITHUB_ID` / `GITHUB_SECRET` | GitHub OAuth app (scope `repo workflow read:user`) |
-| `RUNNER_URL` / `RUNNER_API_KEY` | Server-Runner base URL and API key (server-side only) |
-| `AGENT_SERVER_URL` / `AGENT_SERVER_API_KEY` | Server-AI base URL and API key (server-side only) |
+| `AGENT_SERVER_URL` / `AGENT_SERVER_API_KEY` | server-ai base URL and API key (server-side only) |
 | `NEXT_PUBLIC_SERVER_WS_URL` | Public WebSocket base, e.g. `wss://api.example.com/api/v1` |
 
-### Server-AI (`server-ai/.env`, prefix `SERVER_`)
+### server-ai (`server-ai/.env`, prefix `SERVER_`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SERVER_API_KEY` | — | Required key for `/agent/run`, `/agent/runs`, `/pr` |
-| `SERVER_RUNNER_URL` | `http://localhost:8001` | Server-Runner base URL |
-| `SERVER_RUNNER_API_KEY` | — | Must equal Server-Runner's `RUNNER_API_KEY` |
-| `SERVER_RUNNER_TIMEOUT` | `900` | Seconds to wait on Server-Runner (covers an install plus a test run) |
+| `SERVER_RUNNER_URL` | `http://localhost:8001` | server-runner base URL |
+| `SERVER_RUNNER_API_KEY` | — | Must equal server-runner's `RUNNER_API_KEY` |
+| `SERVER_RUNNER_TIMEOUT` | `900` | Seconds to wait on server-runner (covers an install plus a test run) |
 | `SERVER_GROQ_API_KEY` | — | Groq API key |
 | `SERVER_LLM_MODEL` | `openai/gpt-oss-120b` | Groq model |
 | `SERVER_LLM_MAX_TOKENS` | `8192` | Max tokens per LLM call, including the model's reasoning |
-| `SERVER_MAX_ITERATIONS` | `5` | Test runs per pipeline |
+| `SERVER_MAX_ITERATIONS` | `5` | Test runs per pipeline when the request doesn't set one (1–10) |
 | `SERVER_RUN_TICKET_TTL` | `120` | Seconds a `run_id` stays valid |
 | `SERVER_CORS_ALLOW_ORIGINS` | `[]` | JSON list; not needed for the WebSocket |
 | `SERVER_DEBUG` | `false` | Allows running without `SERVER_API_KEY` |
 
 Run tickets are held in memory, so keep `SERVER_UVICORN_WORKERS=1`.
 
-### Server-Runner (`server-runner/.env`, prefix `RUNNER_`)
+### server-runner (`server-runner/.env`, prefix `RUNNER_`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -445,151 +205,32 @@ Run tickets are held in memory, so keep `SERVER_UVICORN_WORKERS=1`.
 | `RUNNER_CLEANUP_INTERVAL` | `600` | Seconds between sweeps that delete repos of expired sessions |
 | `RUNNER_DEBUG` | `false` | Allows running without `RUNNER_API_KEY` |
 
----
+## API Endpoints
 
-## ▶️ Running the Application
-
-### Option 1: Run All Services Locally (Development)
-
-#### Terminal 1: Frontend
-```bash
-cd frontend
-npm run dev
-# Frontend runs at http://localhost:3000
-```
-
-#### Terminal 2: Server-AI
-```bash
-cd server-ai
-uv run python -m src.app.api
-# API docs: http://localhost:8000/docs
-```
-
-#### Terminal 3: Server-Runner
-```bash
-cd server-runner
-uv run python -m src.app.api
-# API docs: http://localhost:8001/docs
-```
-
-#### Terminal 4: Redis (if not using Docker)
-```bash
-redis-server
-```
-
-### Option 2: Run Using Docker Compose
-
-Create a `docker-compose.yml` in the root directory:
-
-```yaml
-version: '3.9'
-
-services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
-  server-runner:
-    build: ./server-runner
-    ports:
-      - "8001:8001"
-    environment:
-      - RUNNER_API_KEY=${RUNNER_API_KEY}
-      - RUNNER_REDIS_URL=redis://redis:6379/0
-      - RUNNER_REPOS_BASE_PATH=/home/ubuntu/repos
-    depends_on:
-      - redis
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /home/ubuntu/repos:/home/ubuntu/repos
-
-  server-ai:
-    build: ./server-ai
-    ports:
-      - "8000:8000"
-    environment:
-      - SERVER_API_KEY=${SERVER_API_KEY}
-      - SERVER_RUNNER_URL=http://server-runner:8001
-      - SERVER_RUNNER_API_KEY=${RUNNER_API_KEY}
-      - SERVER_GROQ_API_KEY=${GROQ_API_KEY}
-    depends_on:
-      - server-runner
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - RUNNER_URL=http://server-runner:8001
-      - RUNNER_API_KEY=${RUNNER_API_KEY}
-      - AGENT_SERVER_URL=http://server-ai:8000
-      - AGENT_SERVER_API_KEY=${SERVER_API_KEY}
-      - NEXT_PUBLIC_SERVER_WS_URL=ws://localhost:8000/api/v1
-      - NEXTAUTH_URL=http://localhost:3000
-      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-      - GITHUB_ID=${GITHUB_ID}
-      - GITHUB_SECRET=${GITHUB_SECRET}
-    depends_on:
-      - server-ai
-      - server-runner
-
-volumes:
-  redis_data:
-```
-
-The `python-executor` and `node-executor` containers from Step 4 must also be running (mounting `/home/ubuntu/repos` at `/repos`). Then run:
-
-```bash
-docker-compose up -d
-```
-
-### Verify Services Are Running
-
-```bash
-# Check Frontend
-curl http://localhost:3000
-
-# Check Server-AI Health
-curl http://localhost:8000/api/v1/health
-
-# Check Server-Runner Health
-curl http://localhost:8001/api/v1/health
-
-# Check Redis
-redis-cli ping  # Should return PONG
-```
-
----
-
-## 📡 API Endpoints
-
-### Frontend Routes
+### Frontend
 
 | Route | Method | Description |
 |-------|--------|-------------|
-| `/` | GET | Landing page |
-| `/signin` | GET | GitHub OAuth signin page |
-| `/dashboard` | GET | Main dashboard |
+| `/` | GET | New run and your recent runs |
+| `/runs/[id]` | GET | A run: live steps, fixes and log |
+| `/signin` | GET | Sign in with GitHub |
+| `/dashboard` | GET | Old URL; redirects to `/` or `/runs/[id]` |
 | `/api/auth/*` | GET/POST | NextAuth routes |
-| `/api/github/repos` | GET | List the user's GitHub repositories |
-| `/api/sessions` | POST | Clone a repo (proxies Server-Runner `POST /sessions`) |
-| `/api/runs` | POST | Register a run (proxies Server-AI `POST /agent/runs`), returns `run_id` |
+| `/api/github/repos` | GET | The signed-in user's repositories |
+| `/api/runs` | POST | Register a run on server-ai (`POST /agent/runs`), returns `run_id` |
 | `/api/pr` | POST | Open a pull request as the signed-in user |
 
-### Server-AI Endpoints
+### server-ai
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/api/v1/health` | GET | — | Health check |
 | `/api/v1/agent/runs` | POST | API key | Register a streaming run, returns a single-use `run_id` |
-| `/api/v1/agent/ws?run_id=…` | WebSocket | `run_id` | Real-time pipeline stream |
+| `/api/v1/agent/ws?run_id=…` | WebSocket | `run_id` | The run's event stream |
 | `/api/v1/agent/run` | POST | API key | Run the same pipeline without streaming and return the full report (for scripts) |
 | `/api/v1/pr` | POST | API key | Create a pull request |
 
-### Server-Runner Endpoints
+### server-runner
 
 All endpoints except `/health` require the API key.
 
@@ -604,134 +245,92 @@ All endpoints except `/health` require the API key.
 | `/api/v1/commit` | POST | Commit a file to a branch and push |
 | `/api/v1/files` | GET | Read a file from a session repo |
 
----
+## Deployment
 
-## 🔄 Workflow & Pipeline
+GreenBranch has been deployed two ways. In both, the frontend is on Vercel; only where the backends run changed.
 
-### Complete GreenBranch Pipeline
+| | [Android phone](#android-phone-current) (current) | [AWS EC2](#aws-ec2-original) (original) |
+| --- | --- | --- |
+| Backend host | One Android phone, Termux + Debian | Two EC2 instances, one per backend |
+| Reaching the backends | Cloudflare Tunnel, opened from the phone | Ports 8000 and 8001 on each instance |
+| Shipping a change | git fast-forward and `uv sync` on the phone, over SSH through Cloudflare Access | Docker image to Docker Hub, then `docker pull` over SSH |
+| Processes | PM2: server-ai, server-runner, redis-server, cloudflared | Docker containers |
+| Running repos' tests | `local` executor, allowed owners only | Executor containers through the Docker socket |
+| Before a deploy | Both backends install and import in CI | Nothing |
+| After a deploy | `/health` check, automatic rollback | Nothing |
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  User connects GitHub repo via Dashboard                    │
-└────────────┬────────────────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Step 1: Repository Cloning & Setup                         │
-│  ├─ Clone repository from GitHub                            │
-│  ├─ Checkout specified branch                               │
-│  └─ Prepare the executor (local process or Docker)          │
-└────────────┬────────────────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Step 2: Dependency Installation                            │
-│  ├─ Run install command (npm install, pip install, etc.)   │
-│  └─ Prepare environment                                     │
-└────────────┬────────────────────────────────────────────────┘
-             │
-             ▼
-    ┌────────────────────────────────┐
-    │  HEALING LOOP (Max Iterations)  │
-    └────────────┬───────────────────┘
-                 │
-                 ▼
-    ┌─────────────────────────────┐
-    │ Step 3: Execute Tests       │
-    │ ├─ Run test command         │
-    │ ├─ Capture output           │
-    │ └─ Parse results            │
-    └────────┬────────────────────┘
-             │
-             ├─ All tests pass? ─────YES──> Exit Loop ✓
-             │
-             NO
-             │
-             ▼
-    ┌─────────────────────────────┐
-    │ Step 4: Select Error        │
-    │ ├─ Identify failure          │
-    │ ├─ Extract error message     │
-    │ └─ Get relevant code context │
-    └────────┬────────────────────┘
-             │
-             ▼
-    ┌─────────────────────────────┐
-    │ Step 5: Generate Fix        │
-    │ ├─ Send to Groq LLM         │
-    │ ├─ Analyze problem          │
-    │ ├─ Generate solution        │
-    │ └─ Create patch             │
-    └────────┬────────────────────┘
-             │
-             ▼
-    ┌─────────────────────────────┐
-    │ Step 6: Apply Fix           │
-    │ ├─ Update source code       │
-    │ ├─ Validate syntax          │
-    │ └─ Commit changes           │
-    └────────┬────────────────────┘
-             │
-             └──────┬─────────────┬──────────────────┘
-                    │             │
-                    └─── Re-run Tests (Loop back)
-                    
-                    OR Max iterations reached
-             │
-             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Step 7: Create Pull Request                                │
-│  ├─ Create branch (greenbranch/fix-<repo>-<timestamp>)      │
-│  ├─ Push to GitHub                                          │
-│  ├─ Create PR with fix details                              │
-│  └─ Return results to dashboard                             │
-└────────────┬────────────────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Display Results to User                                    │
-│  ├─ Summary of fixes applied                                │
-│  ├─ Timeline of iterations                                  │
-│  ├─ Links to created PR                                     │
-│  └─ Detailed execution logs                                 │
-└─────────────────────────────────────────────────────────────┘
-```
+### Android Phone (current)
 
-### How a fix is made
+![Deployment on an Android phone: GitHub Actions deploys the frontend to Vercel and the backends to the phone over SSH through Cloudflare Access; on the phone, Debian runs inside Termux and PM2 runs server-ai, server-runner, redis-server and cloudflared, whose outbound tunnel carries HTTPS, WebSocket and SSH traffic](docs/deployment-phone.svg)
 
-`server-ai/src/runner/fix_engine.py` handles one failing test at a time:
+Both backends run on an old Android phone. Debian runs inside Termux with proot-distro, because the backends and the repositories under test need normal Linux ARM packages that Termux can't install. PM2 keeps server-ai, server-runner, redis-server and cloudflared running, and Termux:Boot starts everything again after a reboot.
 
-1. **Find the code.** If the failure is in a test file, follow the test's imports (JS/TS
-   relative imports, Python `from x import y`) and its name (`test_calc.py` → `calc.py`)
-   to the implementation it exercises.
-2. **Ask for edits, not files.** The LLM sees the error, the test output and the files, and
-   answers with small `SEARCH/REPLACE` blocks. Only changed lines come back, so long files
-   can be fixed. An answer cut off at the token limit is rejected.
-3. **Apply exactly.** Each block must match the file exactly once (trailing whitespace and
-   CRLF line endings are tolerated). Edits that don't apply, or that change a test's
-   assertions instead of the code, count as a failed attempt.
-4. **Verify.** The next test run decides: if the error is gone the fix is kept and explained,
-   otherwise the file is reverted. Each error gets at most two attempts.
+cloudflared dials out to Cloudflare, so the phone needs no public IP or open ports: Cloudflare routes HTTPS and WebSocket traffic to server-ai on `:8000`, and SSH (behind Cloudflare Access) to Termux's `sshd` on `:8022`. Both backends listen on `127.0.0.1` only, and server-ai reaches server-runner on `127.0.0.1:8001`. The `local` executor has no sandbox, so `RUNNER_ALLOWED_REPO_OWNERS` limits cloning to your own repositories.
 
----
+#### CI/CD pipeline
 
-## 📱 Deployment (Android phone)
+![CI/CD: vercel-deploy.yaml builds and deploys frontend/ to Vercel; phone-deploy.yaml checks both backends, then streams deploy.sh to the phone over SSH through Cloudflare, where it fast-forwards, syncs dependencies, restarts both backends, and rolls back if /health fails within 60 seconds](docs/deploy-pipeline-phone.svg)
 
-The backends run on an old Android phone instead of a cloud server; the frontend stays on
-Vercel. Everything runs under PM2 inside Debian (proot-distro) in Termux, and a Cloudflare
-Tunnel gives it public HTTPS URLs without opening ports on the router:
+GitHub Actions runs two workflows on pushes to `main`, each only for its own folders. One push can start both, and neither waits for the other. Both can also be started by hand from the Actions tab.
+
+1. **Vercel Production Deployment** (`vercel-deploy.yaml`)
+   - Runs when `frontend/` changes
+   - Checks the Vercel secrets, then `vercel pull`, `vercel build --prod` and `vercel deploy --prebuilt --prod`
+   - Removes `.git` before deploying, which skips Vercel's "Git author must have access" check
+
+2. **Deploy backends to phone** (`phone-deploy.yaml`)
+   - Runs when `server-ai/`, `server-runner/` or `deploy/phone/` change; the `deploy-phone` concurrency group means two deploys never overlap
+   - `check` installs both backends (`uv sync --frozen`) and compiles and imports each app, in parallel; any failure stops the run before anything reaches the phone
+   - `deploy` installs cloudflared, writes the SSH key, known host and `ProxyCommand` from secrets, and streams [`deploy/phone/deploy.sh`](deploy/phone/deploy.sh) to the phone, which:
+     - checks PM2 is running and the checkout on the phone has no local changes
+     - fast-forwards to the deployed commit
+     - syncs both backends' dependencies
+     - restarts server-runner and server-ai with PM2 (never the tunnel the deploy is running through)
+     - waits up to 60 seconds for both `/health` endpoints, and resets to the previous commit if they don't pass
+
+See [`deploy/phone/README.md`](deploy/phone/README.md) for the one-time setup: the phone, the Cloudflare tunnel and Access policy, the deploy key, GitHub secrets and Vercel's environment variables.
+
+### AWS EC2 (original)
+
+![Original deployment on AWS EC2: GitHub Actions built Docker images, pushed them to Docker Hub and SSHed into two EC2 instances to replace the containers; the agent container ran tests in executor containers through the Docker socket, and sessions lived in Redis](docs/deployment-aws-ec2.svg)
+
+Before the phone, each backend ran on its own EC2 instance as a Docker container:
+
+- `greenbranch-server` (server-ai) on `:8000`, and `greenbranch-ec2-agent` (then called `server-ec2`, now server-runner) on `:8001`
+- The frontend called server-ai for runs and the WebSocket, and the agent directly to clone repositories
+- The agent mounted the Docker socket and ran install and test commands with `docker exec` in long-running `python-executor` and `node-executor` containers, all sharing `/home/ubuntu/repos`
+- Sessions lived in a Redis reached through a URL from secrets, and the LLM was `llama-3.3-70b-versatile` (since retired by Groq)
+
+#### CI/CD pipeline
+
+![Original CI/CD: server-deploy.yaml and ec2-deploy.yaml each logged in to Docker Hub, built and pushed an image, then used appleboy/ssh-action to pull it and replace the container on their EC2 instance, with no tests before and no health check after](docs/deploy-pipeline-aws-ec2.svg)
+
+`server-deploy.yaml` (for `server-ai/`) and `ec2-deploy.yaml` (for `server-ec2/`) each had one job: log in to Docker Hub, build and push a `linux/amd64` image tagged `:latest`, then SSH into the instance with `appleboy/ssh-action` to write the `.env` from secrets, `docker pull`, stop and remove the old container, `docker run` the new one and prune old images. Nothing ran the tests first and nothing checked the container afterwards, so a broken image stayed live until the next deploy.
+
+Both workflows were replaced by the phone deploy. The last EC2 versions are in the git history: `git show 8003ec7^:.github/workflows/server-deploy.yaml` and `git show 8003ec7^:.github/workflows/ec2-deploy.yaml`.
+
+### Other Hosts
+
+`server-ai/Dockerfile` and `server-runner/Dockerfile` still build production images for any container host. With the `docker` executor, mount the Docker socket and the repos folder into the server-runner container, and start the two executor containers next to it.
+
+## Project Structure
 
 ```
-Vercel (frontend) ──HTTPS / WSS──▶ Cloudflare Tunnel ──▶ phone
-                                                         ├─ server-ai   :8000
-                                                         ├─ server-runner  :8001  (local executor)
-                                                         ├─ redis       :6379
-                                                         └─ sshd        :8022  (deploys only)
+green-branch/
+├── frontend/              Next.js app (pages, server routes, run history, PR dialogs)
+├── server-ai/             FastAPI: the test/fix loop, Groq client, WebSocket stream, pull requests
+├── server-runner/         FastAPI: sessions, git, install/test execution, executors
+├── deploy/phone/          Phone setup, PM2 config, start script and deploy script
+├── docs/                  The diagrams in this README (SVG, with 2x PNGs)
+└── .github/workflows/     vercel-deploy.yaml, phone-deploy.yaml
 ```
 
-Pushes to `main` that touch the backends run `.github/workflows/phone-deploy.yaml`, which
-checks both apps, then deploys over SSH through the tunnel and rolls back automatically if
-the new version isn't healthy.
+## Contributing
 
-The full setup — phone, Cloudflare, GitHub secrets, Vercel — is in
-[`deploy/phone/README.md`](deploy/phone/README.md).
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -am 'Add some feature'`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Open a Pull Request
+
+**GitHub Repository**: [https://github.com/saiabhiramjaini/green-branch](https://github.com/saiabhiramjaini/green-branch)

@@ -65,7 +65,8 @@ cloudflared, then asks for:
 - **Groq API key**
 - **Cloudflare Tunnel token:** press Enter to skip for now. Step 3 covers it.
 
-At the end it prints `AGENT_SERVER_API_KEY` and `RUNNER_API_KEY` for Vercel (step 4).
+At the end it prints `AGENT_SERVER_API_KEY` for Vercel (step 4). It also prints `RUNNER_API_KEY`;
+Vercel no longer needs it, because only server-ai talks to server-runner, on `127.0.0.1:8001`.
 Then set an SSH password with `passwd`, and check both backends:
 
 ```bash
@@ -93,7 +94,6 @@ Re-running `setup.sh` is safe. It keeps existing `.env` files and the tunnel tok
    | Hostname | Service URL |
    |---|---|
    | `greenbranch-api.example.com` | `http://localhost:8000` |
-   | `greenbranch-runner.example.com` | `http://localhost:8001` |
    | `greenbranch-ssh.example.com` | `ssh://localhost:8022` |
 
 4. Protect the SSH hostname **before** you rely on it:
@@ -112,8 +112,6 @@ In the Vercel project's environment variables (Production), then redeploy:
 |---|---|
 | `AGENT_SERVER_URL` | `https://greenbranch-api.example.com` |
 | `AGENT_SERVER_API_KEY` | printed by the setup |
-| `RUNNER_URL` | `https://greenbranch-runner.example.com` |
-| `RUNNER_API_KEY` | printed by the setup |
 | `NEXT_PUBLIC_SERVER_WS_URL` | `wss://greenbranch-api.example.com/api/v1` |
 
 To see the keys again, run this in Termux:
