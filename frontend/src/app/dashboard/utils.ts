@@ -2,16 +2,18 @@
 
 import type { FailedStep, Language } from "./types";
 
-export function timeAgo(date: string) {
-  const seconds = Math.floor(
-    (new Date().getTime() - new Date(date).getTime()) / 1000
-  );
-  if (seconds < 60) return "just now";
+/** "4m ago" (or "4m" when short). */
+export function timeAgo(date: string, short = false) {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  const suffix = short ? "" : " ago";
+  if (seconds < 60) return short ? "now" : "just now";
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60) return `${minutes}m${suffix}`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
+  if (hours < 24) return `${hours}h${suffix}`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d${suffix}`;
+  return new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 export const LANG_COLORS: Record<string, string> = {
@@ -51,8 +53,32 @@ export function getDefaultCommands(language: Language): {
   }
 }
 
-export function formatTime(s: number) {
+export function formatTime(seconds: number) {
+  const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+}
+
+export const LANGUAGE_LABELS: Record<Language, string> = {
+  nodejs: "Node.js",
+  python: "Python",
+};
+
+/**
+ * Accept "owner/repo", "github.com/owner/repo" or a full https URL (optionally with
+ * .git or a trailing path) and return the canonical https://github.com/owner/repo,
+ * or null when it doesn't look like a GitHub repository.
+ */
+export function normalizeRepoUrl(input: string): string | null {
+  let s = input.trim().replace(/\.git$/, "").replace(/\/+$/, "");
+  s = s.replace(/^(https?:\/\/)?(www\.)?github\.com\//i, "");
+  const match = s.match(/^([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)/);
+  if (!match) return null;
+  return `https://github.com/${match[1]}/${match[2]}`;
+}
+
+/** GitHub's "compare & open a pull request" page for a pushed branch. */
+export function compareUrl(repoUrl: string, base: string, branch: string) {
+  return `${repoUrl.replace(/\/$/, "")}/compare/${encodeURI(base)}...${encodeURI(branch)}?expand=1`;
 }
 
 export function mapLanguage(lang: string | null): Language {

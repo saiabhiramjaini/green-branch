@@ -1,9 +1,13 @@
-"use client";
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import { FrontDoor } from "@/components/console/FrontDoor";
 
-import LoginPage from "@/components/login";
+export const metadata: Metadata = { title: "Sign in" };
 
 export default function SignIn() {
   return (
-    <LoginPage />
-  )
+    <Suspense>
+      <FrontDoor mode="signin" />
+    </Suspense>
+  );
 }

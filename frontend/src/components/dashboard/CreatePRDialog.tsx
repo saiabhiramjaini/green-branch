@@ -1,33 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import axios from "axios";
+import { AlertCircle, ArrowUpRight, Check, GitPullRequest, Loader2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import {
-  CheckCircle2,
-  GitPullRequest,
-  GitBranch,
-  GitCommit,
-  FileCode,
-  Loader2,
-  AlertCircle,
-  Edit3,
-  Clock,
-} from "lucide-react";
-import { Fix } from "@/app/dashboard/types";
-import axios from "axios";
+import { GitHubIcon } from "@/components/brand";
+import { compareUrl, formatTime } from "@/app/dashboard/utils";
+import type { Fix } from "@/app/dashboard/types";
 
 interface CreatePRDialogProps {
   open: boolean;
@@ -44,19 +27,11 @@ interface CreatePRDialogProps {
 
 /** Parse `owner/repo` from a full GitHub URL. */
 function parseRepoFullName(url: string): string {
-  const clean = url.replace(/\.git$/, "").replace(/\/$/, "");
-  const parts = clean.split("/");
+  const parts = url.replace(/\.git$/, "").replace(/\/$/, "").split("/");
   return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
 }
 
-/** Format seconds as M:SS */
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.round(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-/** Build a rich markdown PR body using all available context. */
+/** Markdown PR body: summary table, then each fix with the model's reasoning. */
 function buildPRBody(
   fixes: Fix[],
   repoFullName: string,
@@ -65,107 +40,52 @@ function buildPRBody(
   commitHash: string | undefined,
   timeTaken: number | undefined
 ): string {
-  const fixedFixes = fixes.filter((f) => f.status === "fixed");
-  const failedFixes = fixes.filter((f) => f.status === "failed");
-  const now = new Date().toISOString();
+  const fixed = fixes.filter((f) => f.status === "fixed");
+  const failed = fixes.filter((f) => f.status === "failed");
 
-  let body = `# 🤖 GreenBranch AI — Automated Fix Report\n\n`;
+  let body = `## Summary\n\nGreenBranch ran the test suite of \`${repoFullName}\`, applied the fixes below, and re-ran the tests to verify each one.\n\n`;
+  body += `| | |\n| --- | --- |\n`;
+  body += `| Fix branch | \`${branchName}\` |\n`;
+  body += `| Target branch | \`${baseBranch}\` |\n`;
+  if (commitHash) body += `| Last commit | \`${commitHash.slice(0, 7)}\` |\n`;
+  if (timeTaken) body += `| Run time | ${formatTime(timeTaken)} |\n`;
+  body += `| Files fixed | ${fixed.length} |\n\n`;
 
-  // ── Summary table ─────────────────────────────────────────────────────
-  body += `## Summary\n\n`;
-  body += `| Field | Value |\n`;
-  body += `| --- | --- |\n`;
-  body += `| **Repository** | \`${repoFullName}\` |\n`;
-  body += `| **Fix Branch** | \`${branchName}\` |\n`;
-  body += `| **Target Branch** | \`${baseBranch}\` |\n`;
-  if (commitHash) body += `| **Commit** | \`${commitHash}\` |\n`;
-  if (timeTaken) body += `| **Time Taken** | ${formatTime(timeTaken)} |\n`;
-  body += `| **Files Fixed** | ${fixedFixes.length} |\n`;
-  body += `| **Generated At** | ${now} |\n`;
-  body += `\n---\n\n`;
-
-  // ── Detailed fixes ────────────────────────────────────────────────────
-  if (fixedFixes.length > 0) {
-    body += `## ✅ Fixes Applied (${fixedFixes.length})\n\n`;
-    fixedFixes.forEach((fix, idx) => {
-      body += `### ${idx + 1}. \`${fix.file}\`\n\n`;
-
-      if (fix.bug_type) {
-        body += `**Bug Type:** \`${fix.bug_type}\``;
-        if (fix.line_number) body += ` &nbsp;·&nbsp; **Line:** ${fix.line_number}`;
-        body += `\n\n`;
-      }
-
-      if (fix.commit_message) {
-        body += `**Commit Message:** ${fix.commit_message}\n\n`;
-      }
-
-      if (fix.explanation) {
-        if (fix.explanation.root_cause) {
-          body += `**Root Cause:**\n> ${fix.explanation.root_cause}\n\n`;
-        }
-        if (fix.explanation.changes_made) {
-          body += `**Changes Made:**\n> ${fix.explanation.changes_made}\n\n`;
-        }
-        if (fix.explanation.impact) {
-          body += `**Impact:**\n> ${fix.explanation.impact}\n\n`;
-        }
-      } else if (fix.description) {
-        body += `**Description:** ${fix.description}\n\n`;
-      }
-
-      body += `---\n\n`;
+  if (fixed.length) {
+    body += `## Changes\n\n`;
+    fixed.forEach((fix) => {
+      body += `### \`${fix.file}${fix.line_number ? `:${fix.line_number}` : ""}\`${fix.bug_type ? ` — ${fix.bug_type}` : ""}\n\n`;
+      if (fix.explanation?.root_cause) body += `**Root cause.** ${fix.explanation.root_cause}\n\n`;
+      if (fix.explanation?.changes_made) body += `**Change.** ${fix.explanation.changes_made}\n\n`;
+      if (fix.explanation?.impact) body += `**Impact.** ${fix.explanation.impact}\n\n`;
+      if (!fix.explanation && fix.description) body += `${fix.description}\n\n`;
     });
   }
 
-  // ── Failed fixes ──────────────────────────────────────────────────────
-  if (failedFixes.length > 0) {
-    body += `## ⚠️ Attempted But Could Not Fix (${failedFixes.length})\n\n`;
-    failedFixes.forEach((fix) => {
-      body += `- \`${fix.file}\``;
-      if (fix.bug_type) body += ` (${fix.bug_type})`;
-      if (fix.error_message) body += ` — ${fix.error_message}`;
-      body += `\n`;
+  if (failed.length) {
+    body += `## Not fixed\n\n`;
+    failed.forEach((fix) => {
+      body += `- \`${fix.file}\`${fix.bug_type ? ` (${fix.bug_type})` : ""}${fix.error_message ? ` — ${fix.error_message}` : ""}\n`;
     });
-    body += `\n---\n\n`;
+    body += `\n`;
   }
 
-  // ── Footer ────────────────────────────────────────────────────────────
-  body += `> *This Pull Request was automatically generated by [GreenBranch AI](https://greenbranch.abhiramtech.in). `;
-  body += `All changes have been verified by the automated test suite before this PR was raised.*\n`;
-
+  body += `---\n\n_Opened with [GreenBranch](https://github.com/saiabhiramjaini/green-branch). Every change above was verified by re-running the test suite before it was committed._\n`;
   return body;
 }
 
-/** Build a concise, descriptive PR title from the fix set. */
+/** Concise conventional-commit style PR title. */
 function buildPRTitle(fixes: Fix[], repoFullName: string): string {
-  const fixedFixes = fixes.filter((f) => f.status === "fixed");
-
-  if (fixedFixes.length === 0) {
-    return `fix: Automated bug fixes for ${repoFullName.split("/")[1]}`;
+  const fixed = fixes.filter((f) => f.status === "fixed");
+  const repoName = repoFullName.split("/")[1];
+  if (fixed.length === 1) {
+    const msg = fixed[0].commit_message?.trim();
+    if (msg) return (/^\w+(\([^)]*\))?!?:/.test(msg) ? msg : `fix: ${msg}`).slice(0, 80);
+    return `fix: resolve ${fixed[0].bug_type || "failing test"} in ${fixed[0].file}`;
   }
-
-  if (fixedFixes.length === 1) {
-    const fix = fixedFixes[0];
-    if (fix.commit_message) {
-      // Commit messages are already conventional ("fix(calc.py): …"); only add a prefix when missing
-      const msg = fix.commit_message.trim();
-      return (/^\w+(\([^)]*\))?!?:/.test(msg) ? msg : `fix: ${msg}`).slice(0, 80);
-    }
-    return `fix: Resolve ${fix.bug_type || "bug"} in ${fix.file}`;
-  }
-
-  // Multiple fixes — use the most common bug type if consistent
-  const bugTypes = fixedFixes.map((f) => f.bug_type).filter(Boolean);
-  const uniqueTypes = [...new Set(bugTypes)];
-  if (uniqueTypes.length === 1 && uniqueTypes[0]) {
-    return `fix: Resolve ${fixedFixes.length} ${uniqueTypes[0]} issues in ${repoFullName.split("/")[1]}`;
-  }
-
-  return `fix: Apply ${fixedFixes.length} AI-generated bug fixes to ${repoFullName.split("/")[1]}`;
+  if (fixed.length > 1) return `fix: resolve ${fixed.length} failing tests in ${repoName}`;
+  return `fix: automated test fixes for ${repoName}`;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function CreatePRDialog({
   open,
@@ -179,297 +99,138 @@ export function CreatePRDialog({
   isSignedIn,
   onPRCreated,
 }: CreatePRDialogProps) {
+  const repoFullName = parseRepoFullName(repoUrl);
+  const fixed = fixes.filter((f) => f.status === "fixed");
+
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
 
-  const repoFullName = parseRepoFullName(repoUrl);
-
-  /** Recompute title + body whenever the dialog opens or key props change. */
-  const recomputeContent = useCallback(() => {
-    setPrTitle(buildPRTitle(fixes, repoFullName));
-    setPrBody(
-      buildPRBody(
-        fixes,
-        repoFullName,
-        branchName,
-        baseBranch,
-        commitHash,
-        timeTaken
-      )
-    );
-    setError(null);
-    setIsEditing(false);
-  }, [
-    fixes,
-    repoFullName,
-    branchName,
-    baseBranch,
-    commitHash,
-    timeTaken,
-  ]);
-
-  // Refresh content every time the dialog opens
+  // Regenerate the draft each time the dialog opens
   useEffect(() => {
-    if (open) recomputeContent();
-  }, [open, recomputeContent]);
+    if (!open) return;
+    setPrTitle(buildPRTitle(fixes, repoFullName));
+    setPrBody(buildPRBody(fixes, repoFullName, branchName, baseBranch, commitHash, timeTaken));
+    setError(null);
+  }, [open, fixes, repoFullName, branchName, baseBranch, commitHash, timeTaken]);
 
-  const fixedFixes = fixes.filter((f) => f.status === "fixed");
-
-  const handleCreatePR = async () => {
-    if (!isSignedIn) {
-      setError("Please sign in with GitHub to create a Pull Request.");
-      return;
-    }
-    if (!branchName) {
-      setError("No branch name available. The pipeline may not have committed changes yet.");
-      return;
-    }
-
+  const handleCreate = async () => {
     setIsCreating(true);
     setError(null);
-
     try {
-      // Created server-side with the signed-in user's GitHub token
-      const response = await axios.post("/api/pr", {
+      const { data } = await axios.post("/api/pr", {
         repo_full_name: repoFullName,
         branch_name: branchName,
         base_branch: baseBranch,
-        title: prTitle,
+        title: prTitle.trim(),
         body: prBody,
       });
-
-      if (response.data.success) {
-        onPRCreated(response.data.pr_url, repoFullName);
-        onOpenChange(false);
+      if (data.success) {
+        onPRCreated(data.pr_url, repoFullName);
       } else {
-        setError(response.data.message || "Failed to create PR. Please try again.");
+        setError(data.message || "GitHub didn't create the pull request. Please try again.");
       }
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string; message?: string } }; message?: string };
-      const message =
-        axiosErr.response?.data?.detail ||
-        axiosErr.response?.data?.message ||
-        axiosErr.message ||
-        "Unknown error";
-      setError(`Failed to create PR: ${message}`);
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.detail || err.response?.data?.message || err.message
+        : "Unknown error";
+      setError(String(message));
     } finally {
       setIsCreating(false);
     }
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="sm:max-w-2xl border-primary/20 bg-card overflow-hidden max-h-[90vh] overflow-y-auto">
-        {/* Decorative background blobs */}
-        <div className="pointer-events-none absolute -top-20 -left-20 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -right-20 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
-
-        <AlertDialogHeader className="relative">
-          {/* Success icon */}
-          <div className="flex justify-center mb-4">
-            <div className="relative">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5 ring-1 ring-primary/20">
-                <CheckCircle2 className="h-10 w-10 text-primary" />
-              </div>
-              <div className="absolute -right-1 -bottom-1 flex h-8 w-8 items-center justify-center rounded-full bg-background ring-4 ring-background">
-                <GitPullRequest className="h-5 w-5 text-primary" />
-              </div>
+    <Dialog open={open} onOpenChange={(v) => !isCreating && onOpenChange(v)}>
+      <DialogContent className="gap-0 p-0 sm:max-w-xl">
+        <DialogHeader className="space-y-2 border-b border-border px-6 pb-5 pt-6 text-left">
+          <DialogTitle>Open a pull request</DialogTitle>
+          <DialogDescription asChild>
+            <div className="flex flex-wrap items-center gap-1.5 font-mono text-[13px]">
+              <span className="rounded-md bg-muted px-1.5 py-0.5 text-foreground">{baseBranch}</span>
+              <span aria-hidden>←</span>
+              <span className="sr-only">from</span>
+              <span className="break-all rounded-md bg-muted px-1.5 py-0.5 text-foreground">{branchName}</span>
             </div>
-          </div>
+          </DialogDescription>
+        </DialogHeader>
 
-          <AlertDialogTitle className="text-2xl text-center">
-            All Tests Passed! 🎉
-          </AlertDialogTitle>
-          <AlertDialogDescription className="text-center text-base">
-            GreenBranch fixed your code. Review the details below and raise a Pull Request.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-
-        {/* ── Content ──────────────────────────────────────────────────── */}
-        <div className="space-y-4 py-4">
-
-          {/* Quick stats */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg border border-border/50 bg-secondary/20 p-3 text-center">
-              <div className="flex justify-center mb-1.5">
-                <FileCode className="h-4 w-4 text-primary" />
-              </div>
-              <p className="text-lg font-bold text-foreground">{fixedFixes.length}</p>
-              <p className="text-xs text-muted-foreground">Files Fixed</p>
+        {isSignedIn ? (
+          <div className="space-y-5 px-6 py-5">
+            <div className="space-y-2">
+              <label htmlFor="pr-title" className="text-[13px] text-foreground-light">
+                Title
+              </label>
+              <Input id="pr-title" value={prTitle} onChange={(e) => setPrTitle(e.target.value)} />
             </div>
-            <div className="rounded-lg border border-border/50 bg-secondary/20 p-3 text-center">
-              <div className="flex justify-center mb-1.5">
-                <GitCommit className="h-4 w-4 text-purple-500" />
-              </div>
-              <p className="text-lg font-bold text-foreground">{fixedFixes.length}</p>
-              <p className="text-xs text-muted-foreground">Commits</p>
+            <div className="space-y-2">
+              <label htmlFor="pr-body" className="text-[13px] text-foreground-light">
+                Description <span className="font-normal text-foreground-lighter">· Markdown</span>
+              </label>
+              <Textarea
+                id="pr-body"
+                value={prBody}
+                onChange={(e) => setPrBody(e.target.value)}
+                className="scroll-quiet h-48 resize-y font-mono text-[12.5px] leading-relaxed"
+              />
             </div>
-            <div className="rounded-lg border border-border/50 bg-secondary/20 p-3 text-center">
-              <div className="flex justify-center mb-1.5">
-                <Clock className="h-4 w-4 text-blue-500" />
-              </div>
-              <p className="text-lg font-bold text-foreground">
-                {timeTaken ? formatTime(timeTaken) : "--"}
-              </p>
-              <p className="text-xs text-muted-foreground">Time Taken</p>
-            </div>
-          </div>
-
-          {/* Branch / commit info */}
-          <div className="rounded-xl border border-border/50 bg-secondary/20 p-4 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <GitBranch className="h-4 w-4 text-primary" />
-                <span>Fix Branch</span>
-              </div>
-              <code className="text-sm font-mono text-primary">{branchName || "—"}</code>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <GitBranch className="h-4 w-4 text-muted-foreground" />
-                <span>Target Branch</span>
-              </div>
-              <code className="text-sm font-mono text-foreground">{baseBranch}</code>
-            </div>
-            {commitHash && (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <GitCommit className="h-4 w-4 text-purple-500" />
-                  <span>Commit Hash</span>
-                </div>
-                <code className="text-sm font-mono text-foreground">{commitHash.slice(0, 8)}</code>
-              </div>
-            )}
-          </div>
-
-          {/* PR title & body editor */}
-          <div className="rounded-xl border border-border/50 bg-secondary/20 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Pull Request Details
-              </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsEditing((v) => !v)}
-                className="h-7 gap-1.5 text-xs"
-              >
-                <Edit3 className="h-3 w-3" />
-                {isEditing ? "Done" : "Edit"}
-              </Button>
-            </div>
-
-            {isEditing ? (
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">PR Title</label>
-                  <Input
-                    value={prTitle}
-                    onChange={(e) => setPrTitle(e.target.value)}
-                    className="bg-background/50 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">PR Description (Markdown)</label>
-                  <Textarea
-                    value={prBody}
-                    onChange={(e) => setPrBody(e.target.value)}
-                    className="bg-background/50 text-sm min-h-[200px] font-mono text-xs"
-                  />
-                </div>
-              </div>
-            ) : (
+            {fixed.length > 0 && (
               <div className="space-y-2">
-                <div className="rounded-lg bg-background/50 px-3 py-2">
-                  <p className="text-xs text-muted-foreground mb-1">Title</p>
-                  <p className="text-sm font-medium text-foreground">{prTitle}</p>
-                </div>
-                <div className="rounded-lg bg-background/50 px-3 py-2 max-h-40 overflow-y-auto">
-                  <p className="text-xs text-muted-foreground mb-1">Description Preview</p>
-                  <pre className="text-xs text-foreground/80 whitespace-pre-wrap font-mono leading-relaxed">
-                    {prBody.slice(0, 500)}{prBody.length > 500 ? "\n…" : ""}
-                  </pre>
-                </div>
+                <p className="text-[13px] text-foreground-light">
+                  Includes {fixed.length} file{fixed.length === 1 ? "" : "s"}
+                </p>
+                <ul className="space-y-1">
+                  {fixed.map((fix, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm">
+                      <Check className="h-3.5 w-3.5 shrink-0 text-brand" />
+                      <span className="truncate font-mono text-[13px] text-foreground">{fix.file}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {error && (
+              <div role="alert" className="flex items-start gap-2 rounded-md border border-danger-border bg-danger-soft px-3 py-2.5 text-sm text-danger">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="break-words">{error}</span>
               </div>
             )}
           </div>
+        ) : (
+          <div className="space-y-3 px-6 py-5 text-sm leading-relaxed text-foreground-lighter">
+            <p>
+              The fixes are already pushed to <code className="font-mono text-[13px] text-foreground">{branchName}</code>.
+              You can open the pull request on GitHub yourself — the comparison page is pre-filled.
+            </p>
+            <p>
+              To have GreenBranch open pull requests for you,{" "}
+              <Link href="/signin?callbackUrl=/dashboard" className="text-foreground underline underline-offset-4">
+                sign in with GitHub
+              </Link>{" "}
+              before your next run.
+            </p>
+          </div>
+        )}
 
-          {/* Changes to be included */}
-          {fixedFixes.length > 0 && (
-            <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                Changes to be included ({fixedFixes.length})
-              </p>
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {fixedFixes.map((fix, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center gap-2 rounded-lg bg-background/50 px-3 py-2"
-                  >
-                    <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
-                    <code className="text-xs font-mono text-foreground flex-1 truncate">
-                      {fix.file}
-                    </code>
-                    {fix.line_number > 0 && (
-                      <span className="text-[10px] text-muted-foreground shrink-0">
-                        L{fix.line_number}
-                      </span>
-                    )}
-                    <Badge variant="outline" className="text-[9px] uppercase shrink-0">
-                      {fix.bug_type}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Errors / warnings */}
-          {!isSignedIn && (
-            <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5">
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />
-              <p className="text-xs text-amber-500">
-                Sign in with GitHub to create a Pull Request
-              </p>
-            </div>
-          )}
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2.5">
-              <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-              <p className="text-xs text-destructive">{error}</p>
-            </div>
-          )}
-        </div>
-
-        <Separator className="opacity-50" />
-
-        <AlertDialogFooter className="flex-col sm:flex-row gap-2 pt-4">
-          <AlertDialogCancel disabled={isCreating}>
+        <DialogFooter className="border-t border-border px-6 py-4">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating}>
             Cancel
-          </AlertDialogCancel>
-          <Button
-            onClick={handleCreatePR}
-            disabled={isCreating || !isSignedIn || !branchName}
-            className="gap-2"
-          >
-            {isCreating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Creating PR…
-              </>
-            ) : (
-              <>
-                <GitPullRequest className="h-4 w-4" />
-                Create Pull Request
-              </>
-            )}
           </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          {isSignedIn ? (
+            <Button onClick={handleCreate} disabled={isCreating || !branchName || !prTitle.trim()}>
+              {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitPullRequest className="h-4 w-4" />}
+              {isCreating ? "Opening…" : "Create pull request"}
+            </Button>
+          ) : (
+            <Button asChild>
+              <a href={compareUrl(repoUrl, baseBranch, branchName)} target="_blank" rel="noopener noreferrer">
+                <GitHubIcon className="h-4 w-4" /> Open on GitHub <ArrowUpRight className="h-4 w-4" />
+              </a>
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
