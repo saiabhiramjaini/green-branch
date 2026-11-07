@@ -221,6 +221,10 @@ def parse_edits(answer: str) -> tuple[str | None, list[Edit]]:
     return (target.group(1).strip("`'\"") if target else None), edits
 
 
+class _EditNotFound(FixGenerationError):
+    """An edit's SEARCH text isn't in the file at all."""
+
+
 def _apply_edit(content: str, edit: Edit, number: int) -> str:
     label = f"Edit {number} (SEARCH starting {edit.search.strip().splitlines()[0][:60]!r})"
     count = content.count(edit.search)
@@ -235,8 +239,10 @@ def _apply_edit(content: str, edit: Edit, number: int) -> str:
     search = [line.rstrip() for line in edit.search.splitlines()]
     n = len(search)
     matches = [i for i in range(len(stripped) - n + 1) if stripped[i:i + n] == search]
-    if len(matches) != 1:
-        raise FixGenerationError(f"{label} {'was not found' if not matches else 'is not unique'} in the file")
+    if not matches:
+        raise _EditNotFound(f"{label} was not found in the file")
+    if len(matches) > 1:
+        raise FixGenerationError(f"{label} is not unique in the file")
 
     start = matches[0]
     newline = "\r\n" if "\r\n" in content else "\n"
@@ -246,13 +252,24 @@ def _apply_edit(content: str, edit: Edit, number: int) -> str:
     return "".join(file_lines[:start]) + replacement + "".join(file_lines[start + n:])
 
 
-def apply_edits(content: str, edits: list[Edit]) -> str:
-    """Apply *edits* in order. Raises FixGenerationError if any can't be applied exactly once."""
+def apply_edits(content: str, edits: list[Edit]) -> tuple[str, list[str]]:
+    """Apply *edits* in order; returns the new content and a note for each skipped edit.
+
+    An edit whose SEARCH text isn't in the file is skipped: models sometimes add edits
+    for other failures in other files. Raises FixGenerationError for an empty SEARCH,
+    a SEARCH that matches more than once, or when no edit applies at all.
+    """
+    skipped: list[str] = []
     for number, edit in enumerate(edits, start=1):
         if not edit.search.strip():
             raise FixGenerationError(f"Edit {number} has an empty SEARCH section")
-        content = _apply_edit(content, edit, number)
-    return content
+        try:
+            content = _apply_edit(content, edit, number)
+        except _EditNotFound as e:
+            skipped.append(str(e))
+    if len(skipped) == len(edits):
+        raise FixGenerationError(skipped[0])
+    return content, skipped
 
 
 def _diff(path: str, before: str, after: str) -> str:
@@ -284,7 +301,9 @@ Rules:
   Include a few surrounding lines if needed to make it unique.
 - Keep blocks small: the changed lines plus a little context. Use several blocks for separate changes.
 - To add code, SEARCH for the lines next to where it goes and repeat them in REPLACE with the new code.
-- Change one file only."""
+- Change one file only.
+- Fix ONLY the error under ERROR INFO. The test output may show other failures; ignore them,
+  they are fixed separately. Never edit code that isn't shown above."""
 
 
 def _code_block(path: str, content: str) -> str:
@@ -422,7 +441,7 @@ async def generate_fix(
     failure: FixGenerationError | None = None
     for target_file, original in options:
         try:
-            fixed_code = apply_edits(original, edits)
+            fixed_code, skipped = apply_edits(original, edits)
             break
         except FixGenerationError as e:
             failure = e
@@ -438,7 +457,10 @@ async def generate_fix(
     diff_lines = _diff(target_file, original, fixed_code).splitlines()
     added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
     removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
-    await log(f"  {len(edits)} edit(s) to {target_file} (+{added} −{removed} lines)")
+    await log(f"  {len(edits) - len(skipped)} edit(s) to {target_file} (+{added} −{removed} lines)")
+    if skipped:
+        await log(f"  Skipped {len(skipped)} edit(s) for code that isn't in {target_file}")
+        logger.info(f"[fix_engine] skipped edits: {skipped}")
 
     return FixAttempt(
         error=error,
